@@ -1,0 +1,7 @@
+module.exports = Object.freeze({
+  PENDING_APPROVAL: "PENDING_APPROVAL",
+  OPEN: "OPEN",
+  REJECTED: "REJECTED",
+  FULFILLED: "FULFILLED",
+  CLOSED: "CLOSED",
+});

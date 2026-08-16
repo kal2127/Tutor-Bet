@@ -11,8 +11,20 @@ export default defineConfig(({ mode }) => ({
     hmr: {
       overlay: false,
     },
+    proxy: {
+      "/auth": { target: "http://localhost:5000", changeOrigin: true },
+      "/family": { target: "http://localhost:5000", changeOrigin: true },
+      "/tutor": { target: "http://localhost:5000", changeOrigin: true },
+      "/bookings": { target: "http://localhost:5000", changeOrigin: true },
+      "/admin": { target: "http://localhost:5000", changeOrigin: true },
+      "/feedback": { target: "http://localhost:5000", changeOrigin: true },
+      "/uploads": { target: "http://localhost:5000", changeOrigin: true },
+      "/jobPost": { target: "http://localhost:5000", changeOrigin: true },
+    },
   },
-  plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
+  plugins: [react(), mode === "development" && componentTagger()].filter(
+    Boolean,
+  ),
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

@@ -7,6 +7,7 @@ const {
   getPublicTutorById,
 } = require("./tutors.controller");
 const { authRequired, requireRole } = require("../../middleware/authRequired");
+const { listBookings } = require("../bookings/bookings.controller");
 
 // protected tutor routes first
 router.get("/profile", authRequired, requireRole("TUTOR"), getMyTutorProfile);
@@ -24,6 +25,9 @@ router.patch(
   requireRole("TUTOR"),
   updateTutorAvailability,
 );
+
+// Tutor: list own bookings
+router.get("/bookings", authRequired, requireRole("TUTOR"), listBookings);
 
 // public routes after
 router.get("/", listPublicTutors);

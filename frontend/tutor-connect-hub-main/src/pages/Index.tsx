@@ -1,24 +1,46 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, BookOpen, Mail, ArrowRight } from 'lucide-react';
+import { ArrowRight, ClipboardCheck, Mail, Search, ShieldCheck } from 'lucide-react';
 import { useI18n } from '@/lib/i18n-context';
-import { mockTutors } from '@/lib/mock-data';
+import { api } from '@/lib/api';
+import { toUiTutor, Tutor } from '@/lib/tutors';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 import TutorCard from '@/components/TutorCard';
 import { Button } from '@/components/ui/button';
-import heroImage from '@/assets/hero-image.jpg';
+import heroImage from '@/assets/hero-ethiopian-tutor-left-space.png';
 
 const Index: React.FC = () => {
   const { t, lang } = useI18n();
   const f = lang === 'am' ? 'font-ethiopic' : '';
+  const [featuredTutors, setFeaturedTutors] = useState<Tutor[]>([]);
 
-  const featuredTutors = mockTutors.filter(tutor => tutor.isFeatured);
+  useEffect(() => {
+    let mounted = true;
+    api
+      .listTutors()
+      .then((result) => {
+        if (!mounted) return;
+        setFeaturedTutors(
+          (result.tutors || [])
+            .slice(0, 3)
+            .map((item) => toUiTutor(item as Record<string, unknown>)),
+        );
+      })
+      .catch(() => {
+        if (mounted) setFeaturedTutors([]);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const steps = [
     { icon: Search, title: t.howItWorks.step1Title, desc: t.howItWorks.step1Desc },
-    { icon: BookOpen, title: t.howItWorks.step2Title, desc: t.howItWorks.step2Desc },
-    { icon: Mail, title: t.howItWorks.step3Title, desc: t.howItWorks.step3Desc },
+    { icon: ClipboardCheck, title: t.howItWorks.step2Title, desc: t.howItWorks.step2Desc },
+    { icon: ShieldCheck, title: t.howItWorks.step3Title, desc: t.howItWorks.step3Desc },
+    { icon: Mail, title: t.howItWorks.step4Title, desc: t.howItWorks.step4Desc },
   ];
 
   return (
@@ -26,54 +48,51 @@ const Index: React.FC = () => {
       <Navbar />
 
       {/* Hero Section */}
-      <section className="relative overflow-hidden bg-gradient-hero">
-        <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23000\' fill-opacity=\'1\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }} />
-        <div className="container mx-auto px-4 py-16 md:py-24">
-          <div className="grid items-center gap-12 md:grid-cols-2">
-            <div className="animate-fade-in-up">
-              <h1 className={`text-4xl font-extrabold leading-tight tracking-tight md:text-5xl lg:text-6xl ${f}`}>
-                <span className="text-gradient-gold">{t.hero.title}</span>
-              </h1>
-              <p className={`mt-5 text-lg text-muted-foreground md:text-xl ${f}`}>
-                {t.hero.subtitle}
-              </p>
-              <div className="mt-8 flex flex-wrap gap-4">
-                <Link to="/tutors">
-                  <Button size="lg" className={`bg-gradient-primary text-primary-foreground shadow-gold hover:opacity-90 text-base px-8 ${f}`}>
-                    {t.hero.cta}
-                    <ArrowRight className="ml-2 h-5 w-5" />
-                  </Button>
-                </Link>
-                <Link to="/become-tutor">
-                  <Button size="lg" variant="outline" className={`border-primary/30 text-primary hover:bg-primary/5 text-base px-8 ${f}`}>
-                    {t.hero.ctaSecondary}
-                  </Button>
-                </Link>
-              </div>
-            </div>
-            <div className="hidden md:block animate-fade-in">
-              <img
-                src={heroImage}
-                alt="Tutor teaching student"
-                className="rounded-2xl shadow-2xl"
-              />
+      <section className="relative min-h-[78vh] overflow-hidden bg-background">
+        <img
+          src={heroImage}
+          alt="Ethiopian tutor helping a student study"
+          className="absolute inset-0 h-full w-full object-cover object-center"
+        />
+        <div className="absolute inset-0 bg-gradient-to-r from-background/95 via-background/72 to-background/20" />
+        <div className="absolute inset-0 bg-gradient-to-t from-background/80 via-transparent to-background/20" />
+        <div className="container relative z-10 mx-auto flex min-h-[78vh] items-center py-16 md:py-20">
+          <div className="max-w-3xl animate-fade-in-up">
+            <h1 className={`text-4xl font-extrabold leading-[1.08] tracking-normal text-foreground drop-shadow-xl md:text-5xl xl:text-6xl ${f}`}>
+              {t.hero.title}
+            </h1>
+            <p className={`mt-6 max-w-2xl text-xl leading-8 text-foreground/86 drop-shadow md:text-2xl md:leading-9 ${f}`}>
+              {t.hero.subtitle}
+            </p>
+            <div className="mt-9 flex flex-wrap gap-4">
+              <Link to="/tutors">
+                <Button size="lg" className={`h-14 bg-gradient-primary px-9 text-lg text-primary-foreground shadow-gold transition hover:-translate-y-0.5 hover:opacity-90 ${f}`}>
+                  {t.hero.cta}
+                  <ArrowRight className="ml-2 h-5 w-5" />
+                </Button>
+              </Link>
+              <Link to="/signup?role=tutor">
+                <Button size="lg" variant="outline" className={`h-14 border-foreground/45 bg-background/35 px-9 text-lg text-foreground backdrop-blur transition hover:-translate-y-0.5 hover:bg-background/55 ${f}`}>
+                  {t.hero.ctaSecondary}
+                </Button>
+              </Link>
             </div>
           </div>
         </div>
       </section>
 
       {/* How It Works */}
-      <section className="py-16 md:py-24">
-        <div className="container mx-auto px-4">
+      <section className="py-14 md:py-20">
+        <div className="container mx-auto">
           <div className="text-center mb-12">
-            <h2 className={`text-3xl font-bold md:text-4xl ${f}`}>{t.howItWorks.title}</h2>
-            <p className={`mt-3 text-muted-foreground text-lg ${f}`}>{t.howItWorks.subtitle}</p>
+            <h2 className={`text-4xl font-bold md:text-5xl ${f}`}>{t.howItWorks.title}</h2>
+            <p className={`mt-4 text-xl text-muted-foreground ${f}`}>{t.howItWorks.subtitle}</p>
           </div>
-          <div className="grid gap-8 md:grid-cols-3">
+          <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4 xl:gap-8">
             {steps.map((step, i) => (
               <div
                 key={i}
-                className="relative rounded-xl border border-border bg-card p-8 text-center transition-all hover:shadow-card-hover"
+                className="relative rounded-xl border border-border bg-card p-8 text-center transition-all duration-300 hover:-translate-y-1 hover:shadow-card-hover"
               >
                 <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-primary shadow-gold">
                   <step.icon className="h-7 w-7 text-primary-foreground" />
@@ -81,8 +100,8 @@ const Index: React.FC = () => {
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
                   {i + 1}
                 </div>
-                <h3 className={`text-lg font-semibold mb-2 ${f}`}>{step.title}</h3>
-                <p className={`text-sm text-muted-foreground ${f}`}>{step.desc}</p>
+                <h3 className={`text-xl font-semibold mb-3 ${f}`}>{step.title}</h3>
+                <p className={`text-base leading-7 text-muted-foreground ${f}`}>{step.desc}</p>
               </div>
             ))}
           </div>
@@ -91,7 +110,7 @@ const Index: React.FC = () => {
 
       {/* Featured Tutors */}
       <section className="bg-muted/50 py-16 md:py-24">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto">
           <div className="mb-10 flex items-end justify-between">
             <div>
               <h2 className={`text-3xl font-bold md:text-4xl ${f}`}>{t.featured.title}</h2>
@@ -103,11 +122,17 @@ const Index: React.FC = () => {
               </Button>
             </Link>
           </div>
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {featuredTutors.map(tutor => (
-              <TutorCard key={tutor.id} tutor={tutor} />
-            ))}
-          </div>
+          {featuredTutors.length > 0 ? (
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              {featuredTutors.map(tutor => (
+                <TutorCard key={tutor.id} tutor={tutor} />
+              ))}
+            </div>
+          ) : (
+            <p className={`text-sm text-muted-foreground ${f}`}>
+              Tutors will appear here after admin approval.
+            </p>
+          )}
         </div>
       </section>
 

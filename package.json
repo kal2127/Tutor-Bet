@@ -1,5 +1,12 @@
 {
+  "scripts": {
+    "dev:backend": "npm --prefix tutor-platform-server run dev",
+    "dev:frontend": "npm --prefix frontend/tutor-connect-hub-main run dev",
+    "start:backend": "npm --prefix tutor-platform-server run start",
+    "build:frontend": "npm --prefix frontend/tutor-connect-hub-main run build"
+  },
   "dependencies": {
-    "nodemailer": "^8.0.5"
+    "multer": "^2.2.0",
+    "nodemailer": "^9.0.3"
   }
 }

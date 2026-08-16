@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Noto+Sans+Ethiopic:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Noto+Sans+Ethiopic:wght@300;400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -6,14 +6,14 @@
 
 @layer base {
   :root {
-    --background: 40 33% 97%;
-    --foreground: 20 20% 12%;
+    --background: 24 18% 8%;
+    --foreground: 42 22% 94%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 20 20% 12%;
+    --card: 24 15% 12%;
+    --card-foreground: 42 22% 94%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 20 20% 12%;
+    --popover: 24 15% 12%;
+    --popover-foreground: 42 22% 94%;
 
     --primary: 36 80% 50%;
     --primary-foreground: 0 0% 100%;
@@ -21,17 +21,17 @@
     --secondary: 145 45% 38%;
     --secondary-foreground: 0 0% 100%;
 
-    --muted: 40 20% 92%;
-    --muted-foreground: 20 10% 45%;
+    --muted: 28 12% 18%;
+    --muted-foreground: 42 9% 66%;
 
     --accent: 0 65% 48%;
     --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 84.2% 60.2%;
+    --destructive: 0 72% 52%;
     --destructive-foreground: 210 40% 98%;
 
-    --border: 35 20% 88%;
-    --input: 35 20% 88%;
+    --border: 30 10% 24%;
+    --input: 30 10% 24%;
     --ring: 36 80% 50%;
 
     --radius: 0.75rem;
@@ -41,13 +41,13 @@
     --green-light: 145 40% 50%;
     --green-dark: 145 50% 30%;
 
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-background: 24 18% 9%;
+    --sidebar-foreground: 42 22% 94%;
     --sidebar-primary: 240 5.9% 10%;
     --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
-    --sidebar-border: 220 13% 91%;
+    --sidebar-accent: 28 12% 18%;
+    --sidebar-accent-foreground: 42 22% 94%;
+    --sidebar-border: 30 10% 24%;
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
 
@@ -88,11 +88,26 @@
   }
 
   body {
-    @apply bg-background text-foreground font-sans;
+    @apply bg-background text-foreground font-sans antialiased;
+    font-size: 17px;
+    padding-top: 5rem;
   }
 
   .font-ethiopic {
     font-family: 'Noto Sans Ethiopic', sans-serif;
+  }
+}
+
+@layer components {
+  .container {
+    width: min(100% - 1.5rem, 1680px);
+    max-width: none;
+  }
+
+  @media (min-width: 768px) {
+    .container {
+      width: min(100% - 2.5rem, 1680px);
+    }
   }
 }
 

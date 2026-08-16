@@ -8,12 +8,14 @@ const {
   selectTutorApplication,
 } = require("./jobPosts.controller");
 const { authRequired, requireRole } = require("../../middleware/authRequired");
+const uploadRequestReceipt = require("../../middleware/uploadRequestReceipt");
 
 // family routes
 router.post(
   "/family/job-posts",
   authRequired,
   requireRole("FAMILY"),
+  uploadRequestReceipt.single("request_payment_receipt"),
   createJobPost,
 );
 

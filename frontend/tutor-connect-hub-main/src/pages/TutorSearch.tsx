@@ -1,64 +1,127 @@
-import React, { useState, useMemo } from 'react';
-import { Search } from 'lucide-react';
-import { useI18n } from '@/lib/i18n-context';
-import { mockTutors, subjects, locations } from '@/lib/mock-data';
-import Navbar from '@/components/Navbar';
-import Footer from '@/components/Footer';
-import TutorCard from '@/components/TutorCard';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Input } from '@/components/ui/input';
+import React, { useEffect, useMemo, useState } from "react";
+import { ClipboardPlus, Search } from "lucide-react";
+import { Link } from "react-router-dom";
+import { useI18n } from "@/lib/i18n-context";
+import { subjects, locations, Tutor, toUiTutor } from "@/lib/tutors";
+import Navbar from "@/components/Navbar";
+import Footer from "@/components/Footer";
+import TutorCard from "@/components/TutorCard";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { api, getCurrentUser } from "@/lib/api";
 
 const TutorSearch: React.FC = () => {
   const { t, lang } = useI18n();
-  const f = lang === 'am' ? 'font-ethiopic' : '';
+  const f = lang === "am" ? "font-ethiopic" : "";
 
-  const [searchQuery, setSearchQuery] = useState('');
-  const [subjectFilter, setSubjectFilter] = useState('all');
-  const [locationFilter, setLocationFilter] = useState('all');
-  const [modeFilter, setModeFilter] = useState('all');
+  const [searchQuery, setSearchQuery] = useState("");
+  const [subjectFilter, setSubjectFilter] = useState("all");
+  const [locationFilter, setLocationFilter] = useState("all");
+  const [modeFilter, setModeFilter] = useState("all");
+  const [tutors, setTutors] = useState<Tutor[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const currentUser = getCurrentUser();
+  const postRequestPath =
+    currentUser?.role === "FAMILY"
+      ? "/family/dashboard?tab=new"
+      : `/signup?role=family&next=${encodeURIComponent("/family/dashboard?tab=new")}`;
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadTutors = async () => {
+      setLoading(true);
+      setError("");
+      try {
+        const result = await api.listTutors();
+        if (mounted) {
+          setTutors(
+            (result.tutors || []).map((item) =>
+              toUiTutor(item as Record<string, unknown>),
+            ),
+          );
+        }
+      } catch (err) {
+        if (mounted) {
+          setError(err instanceof Error ? err.message : "Unable to load tutors");
+        }
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    loadTutors();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const filtered = useMemo(() => {
-    let tutors = [...mockTutors].sort((a, b) => (b.isFeatured ? 1 : 0) - (a.isFeatured ? 1 : 0));
+    let data = [...tutors];
 
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      tutors = tutors.filter(t =>
-        t.name.toLowerCase().includes(q) ||
-        t.nameAm.includes(q) ||
-        t.subjects.some(s => s.toLowerCase().includes(q)) ||
-        t.subjectsAm.some(s => s.includes(q))
+      data = data.filter(
+        (tutor) =>
+          tutor.name.toLowerCase().includes(q) ||
+          tutor.subjects.some((subject) => subject.toLowerCase().includes(q)) ||
+          tutor.location.toLowerCase().includes(q),
       );
     }
 
-    if (subjectFilter !== 'all') {
-      tutors = tutors.filter(t => t.subjects.includes(subjectFilter));
+    if (subjectFilter !== "all") {
+      data = data.filter((tutor) => tutor.subjects.includes(subjectFilter));
     }
 
-    if (locationFilter !== 'all') {
-      tutors = tutors.filter(t => t.location.includes(locationFilter));
+    if (locationFilter !== "all") {
+      data = data.filter((tutor) => tutor.location.includes(locationFilter));
     }
 
-    if (modeFilter !== 'all') {
-      tutors = tutors.filter(t => t.mode === modeFilter || t.mode === 'both');
+    if (modeFilter !== "all") {
+      data = data.filter(
+        (tutor) => tutor.mode === modeFilter || tutor.mode === "both",
+      );
     }
 
-    return tutors;
-  }, [searchQuery, subjectFilter, locationFilter, modeFilter]);
+    return data;
+  }, [searchQuery, subjectFilter, locationFilter, modeFilter, tutors]);
 
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
       <div className="container mx-auto px-4 py-10">
-        <h1 className={`text-3xl font-bold mb-8 ${f}`}>{t.search.title}</h1>
+        <div className="mb-8 flex flex-col gap-4 rounded-2xl border border-border bg-card p-5 shadow-sm md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className={`text-4xl font-bold md:text-5xl ${f}`}>
+              {t.search.title}
+            </h1>
+            <p className="mt-2 max-w-2xl text-lg text-muted-foreground">
+              Browse approved tutors or post your learning request so tutors can apply.
+            </p>
+          </div>
+          <Link to={postRequestPath}>
+            <Button size="lg" className="gap-2 bg-gradient-primary text-primary-foreground shadow-gold">
+              <ClipboardPlus className="h-5 w-5" />
+              Post a Request
+            </Button>
+          </Link>
+        </div>
 
-        {/* Filters */}
         <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder={t.hero.searchPlaceholder}
               value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
+              onChange={(e) => setSearchQuery(e.target.value)}
               className={`pl-10 ${f}`}
             />
           </div>
@@ -68,9 +131,13 @@ const TutorSearch: React.FC = () => {
               <SelectValue placeholder={t.search.filterSubject} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all" className={f}>{t.search.allSubjects}</SelectItem>
-              {subjects.map(s => (
-                <SelectItem key={s.en} value={s.en}>{lang === 'am' ? s.am : s.en}</SelectItem>
+              <SelectItem value="all" className={f}>
+                {t.search.allSubjects}
+              </SelectItem>
+              {subjects.map((subject) => (
+                <SelectItem key={subject.en} value={subject.en}>
+                  {lang === "am" ? subject.am : subject.en}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -80,9 +147,13 @@ const TutorSearch: React.FC = () => {
               <SelectValue placeholder={t.search.filterLocation} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all" className={f}>{t.search.allLocations}</SelectItem>
-              {locations.map(l => (
-                <SelectItem key={l.en} value={l.en}>{lang === 'am' ? l.am : l.en}</SelectItem>
+              <SelectItem value="all" className={f}>
+                {t.search.allLocations}
+              </SelectItem>
+              {locations.map((location) => (
+                <SelectItem key={location.en} value={location.en}>
+                  {lang === "am" ? location.am : location.en}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -92,7 +163,9 @@ const TutorSearch: React.FC = () => {
               <SelectValue placeholder={t.search.filterMode} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all" className={f}>{t.search.allModes}</SelectItem>
+              <SelectItem value="all" className={f}>
+                {t.search.allModes}
+              </SelectItem>
               <SelectItem value="online">{t.tutorCard.online}</SelectItem>
               <SelectItem value="in-person">{t.tutorCard.inPerson}</SelectItem>
               <SelectItem value="both">{t.tutorCard.both}</SelectItem>
@@ -104,13 +177,19 @@ const TutorSearch: React.FC = () => {
           {filtered.length} {t.search.results}
         </p>
 
-        {filtered.length === 0 ? (
+        {loading ? (
+          <div className="py-20 text-center text-muted-foreground">
+            Loading tutors...
+          </div>
+        ) : error ? (
+          <div className="py-20 text-center text-destructive">{error}</div>
+        ) : filtered.length === 0 ? (
           <div className="py-20 text-center">
             <p className={`text-muted-foreground ${f}`}>{t.search.noResults}</p>
           </div>
         ) : (
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {filtered.map(tutor => (
+            {filtered.map((tutor) => (
               <TutorCard key={tutor.id} tutor={tutor} />
             ))}
           </div>

@@ -1,31 +1,47 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useI18n } from '@/lib/i18n-context';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Shield, AlertCircle } from 'lucide-react';
-import Navbar from '@/components/Navbar';
-import Footer from '@/components/Footer';
-
-// NOTE: This is a frontend-only mock. In production, admin auth must be server-side validated.
-const MOCK_ADMIN = { email: 'admin@tutorlink.et', password: 'admin123' };
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { AlertCircle, Shield } from "lucide-react";
+import { useI18n } from "@/lib/i18n-context";
+import { api, clearAuthSession, setAuthSession } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import Navbar from "@/components/Navbar";
+import Footer from "@/components/Footer";
 
 const AdminLogin: React.FC = () => {
   const { lang } = useI18n();
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (email === MOCK_ADMIN.email && password === MOCK_ADMIN.password) {
-      sessionStorage.setItem('adminAuth', 'true');
-      navigate('/admin');
-    } else {
-      setError(lang === 'am' ? 'ኢሜል ወይም የይለፍ ቃል ትክክል አይደለም' : 'Invalid email or password');
+    setError("");
+    clearAuthSession();
+    setLoading(true);
+    try {
+      const result = await api.login({ email, password });
+      if (result.user.role !== "ADMIN") {
+        setError("This account is not an admin account.");
+        return;
+      }
+
+      setAuthSession(result.token, result.user);
+      navigate("/admin");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Invalid email or password");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -38,12 +54,10 @@ const AdminLogin: React.FC = () => {
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
               <Shield className="h-7 w-7 text-primary" />
             </div>
-            <CardTitle className={`text-2xl ${lang === 'am' ? 'font-ethiopic' : ''}`}>
-              {lang === 'am' ? 'የአስተዳዳሪ መግቢያ' : 'Admin Login'}
+            <CardTitle className={`text-2xl ${lang === "am" ? "font-ethiopic" : ""}`}>
+              Admin Login
             </CardTitle>
-            <CardDescription className={lang === 'am' ? 'font-ethiopic' : ''}>
-              {lang === 'am' ? 'ወደ አስተዳዳሪ ዳሽቦርድ ይግቡ' : 'Sign in to the admin dashboard'}
-            </CardDescription>
+            <CardDescription>Sign in to the admin dashboard</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleLogin} className="space-y-4">
@@ -54,20 +68,31 @@ const AdminLogin: React.FC = () => {
                 </div>
               )}
               <div className="space-y-2">
-                <Label>{lang === 'am' ? 'ኢሜል' : 'Email'}</Label>
-                <Input type="email" value={email} onChange={e => setEmail(e.target.value)} required />
+                <Label>Email</Label>
+                <Input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
               </div>
               <div className="space-y-2">
-                <Label>{lang === 'am' ? 'የይለፍ ቃል' : 'Password'}</Label>
-                <Input type="password" value={password} onChange={e => setPassword(e.target.value)} required />
+                <Label>Password</Label>
+                <Input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
               </div>
-              <Button type="submit" className="w-full bg-gradient-primary text-primary-foreground">
-                {lang === 'am' ? 'ግባ' : 'Sign In'}
+              <Button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-gradient-primary text-primary-foreground"
+              >
+                {loading ? "Signing in..." : "Sign In"}
               </Button>
             </form>
-            <p className="mt-4 text-center text-xs text-muted-foreground">
-              Demo: admin@tutorlink.et / admin123
-            </p>
           </CardContent>
         </Card>
       </main>

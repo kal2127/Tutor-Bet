@@ -1,0 +1,20 @@
+<svg width="420" height="160" viewBox="0 0 420 160" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Tutor Bet logo</title>
+  <desc id="desc">A house, open book, and learner icon for Tutor Bet.</desc>
+  <defs>
+    <linearGradient id="gold" x1="120" y1="45" x2="300" y2="130" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F6B73C"/>
+      <stop offset="1" stop-color="#D98207"/>
+    </linearGradient>
+    <linearGradient id="green" x1="85" y1="15" x2="310" y2="130" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2E7D4F"/>
+      <stop offset="1" stop-color="#1F5E3A"/>
+    </linearGradient>
+  </defs>
+  <path d="M105 66L210 18L315 66" stroke="url(#green)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M128 66V108C158 105 186 112 210 132C234 112 262 105 292 108V66" stroke="url(#green)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M210 72C225 55 242 47 263 45V96C240 94 222 104 210 132V72Z" fill="url(#gold)"/>
+  <path d="M210 72C195 55 178 47 157 45V96C180 94 198 104 210 132V72Z" fill="url(#gold)"/>
+  <path d="M168 63C185 71 199 92 210 132C221 92 235 71 252 63" stroke="url(#green)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="210" cy="48" r="12" fill="url(#green)"/>
+</svg>

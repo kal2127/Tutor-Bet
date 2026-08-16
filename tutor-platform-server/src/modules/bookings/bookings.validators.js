@@ -1,4 +1,5 @@
 const { z } = require("zod");
+const BookingStatus = require("../../constants/bookingStatus");
 
 const createBookingSchema = z.object({
   tutor_id: z.number().int().positive(),
@@ -18,7 +19,12 @@ const attachReceiptSchema = z.object({
   transaction_ref: z.string().min(3).max(120).optional(),
 });
 
+const updateBookingStatusSchema = z.object({
+  status: z.nativeEnum(BookingStatus),
+});
+
 module.exports = {
   createBookingSchema,
   attachReceiptSchema,
+  updateBookingStatusSchema,
 };

@@ -7,14 +7,22 @@ export default {
   theme: {
     container: {
       center: true,
-      padding: "2rem",
+      padding: {
+        DEFAULT: "0.75rem",
+        sm: "1rem",
+        lg: "1.25rem",
+      },
       screens: {
-        "2xl": "1400px",
+        sm: "100%",
+        md: "100%",
+        lg: "100%",
+        xl: "1440px",
+        "2xl": "1680px",
       },
     },
     extend: {
       fontFamily: {
-        sans: ["Plus Jakarta Sans", "sans-serif"],
+        sans: ["Inter", "sans-serif"],
         ethiopic: ["Noto Sans Ethiopic", "sans-serif"],
       },
       colors: {
@@ -85,8 +93,12 @@ export default {
           to: { height: "0" },
         },
         "fade-in-up": {
-          "0%": { opacity: "0", transform: "translateY(20px)" },
+          "0%": { opacity: "0", transform: "translateY(24px)" },
           "100%": { opacity: "1", transform: "translateY(0)" },
+        },
+        "float-soft": {
+          "0%, 100%": { transform: "translateY(0)" },
+          "50%": { transform: "translateY(-10px)" },
         },
         "fade-in": {
           "0%": { opacity: "0" },
@@ -98,6 +110,7 @@ export default {
         "accordion-up": "accordion-up 0.2s ease-out",
         "fade-in-up": "fade-in-up 0.6s ease-out forwards",
         "fade-in": "fade-in 0.4s ease-out forwards",
+        "float-soft": "float-soft 5s ease-in-out infinite",
       },
     },
   },

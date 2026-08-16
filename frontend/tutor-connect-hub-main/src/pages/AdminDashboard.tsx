@@ -1,365 +1,754 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useI18n } from '@/lib/i18n-context';
-import { mockBookings, mockApplications, Booking, TutorApplication } from '@/lib/mock-admin-data';
-import { getFeedback, markFeedbackRead, Feedback } from '@/lib/mock-feedback-data';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import React, { useCallback, useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from '@/components/ui/table';
+  CalendarDays,
+  CheckCircle,
+  CreditCard,
+  ExternalLink,
+  LogOut,
+  MessageSquare,
+  Trash2,
+  Users,
+  XCircle,
+} from "lucide-react";
+import { useI18n } from "@/lib/i18n-context";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
-} from '@/components/ui/dialog';
-import { CalendarDays, Users, ClipboardCheck, LogOut, CheckCircle, XCircle, Eye, MessageSquare, Mail, Star } from 'lucide-react';
-import Navbar from '@/components/Navbar';
+  AdminFeedback,
+  AdminFamily,
+  AdminTutor,
+  api,
+  BookingRecord,
+  clearAuthSession,
+  getCurrentUser,
+  JobPost,
+  PendingPayment,
+  PendingTutor,
+} from "@/lib/api";
+import { formatGradePricing, summarizeGradePricing } from "@/lib/pricing";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import Navbar from "@/components/Navbar";
+
+const statusBadge = (status: string) => {
+  const normalized = status.toLowerCase();
+  const map: Record<string, string> = {
+    confirmed: "bg-secondary/15 text-secondary",
+    paid: "bg-secondary/15 text-secondary",
+    approved: "bg-secondary/15 text-secondary",
+    active: "bg-secondary/15 text-secondary",
+    pending: "bg-primary/15 text-primary",
+    pending_payment: "bg-primary/15 text-primary",
+    pending_verification: "bg-primary/15 text-primary",
+    pending_approval: "bg-primary/15 text-primary",
+    rejected: "bg-destructive/15 text-destructive",
+    failed: "bg-destructive/15 text-destructive",
+    payment_rejected: "bg-destructive/15 text-destructive",
+    cancelled: "bg-destructive/15 text-destructive",
+    disabled: "bg-destructive/15 text-destructive",
+  };
+
+  return (
+    <Badge className={`${map[normalized] || ""} border-0 capitalize`}>
+      {status.replace(/_/g, " ").toLowerCase()}
+    </Badge>
+  );
+};
+
+function parseList(value: unknown) {
+  if (Array.isArray(value)) return value.map(String);
+  if (typeof value !== "string" || !value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [value];
+  }
+}
+
+function formatPricing(value: unknown) {
+  const items = formatGradePricing(value);
+  return items.length ? items.join(", ") : "-";
+}
+
+const API_ORIGIN = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/api\/?$/, "").replace(/\/$/, "");
+
+function assetUrl(href?: string | null) {
+  if (!href) return "";
+  if (/^https?:\/\//i.test(href)) return href;
+  return `${API_ORIGIN}${href.startsWith("/") ? href : `/${href}`}`;
+}
+
+function DocumentLink({ href, label }: { href?: string | null; label: string }) {
+  if (!href) return <span className="text-xs text-muted-foreground">{label}: missing</span>;
+  return (
+    <a href={assetUrl(href)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
+      {label}
+      <ExternalLink className="h-3 w-3" />
+    </a>
+  );
+}
 
 const AdminDashboard: React.FC = () => {
   const { lang } = useI18n();
   const navigate = useNavigate();
-  const [bookings] = useState<Booking[]>(mockBookings);
-  const [applications, setApplications] = useState<TutorApplication[]>(mockApplications);
-  const [selectedApp, setSelectedApp] = useState<TutorApplication | null>(null);
-  const [feedbackList, setFeedbackList] = useState<Feedback[]>(getFeedback());
-  const am = lang === 'am';
-  const cls = am ? 'font-ethiopic' : '';
+  const [searchParams] = useSearchParams();
+  const am = lang === "am";
+  const cls = am ? "font-ethiopic" : "";
 
-  useEffect(() => {
-    if (sessionStorage.getItem('adminAuth') !== 'true') {
-      navigate('/admin/login');
+  const [bookings, setBookings] = useState<BookingRecord[]>([]);
+  const [tutors, setTutors] = useState<AdminTutor[]>([]);
+  const [families, setFamilies] = useState<AdminFamily[]>([]);
+  const [pendingTutors, setPendingTutors] = useState<PendingTutor[]>([]);
+  const [pendingPayments, setPendingPayments] = useState<PendingPayment[]>([]);
+  const [pendingRequests, setPendingRequests] = useState<JobPost[]>([]);
+  const [feedback, setFeedback] = useState<AdminFeedback[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const loadDashboard = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const results = await Promise.allSettled([
+        api.adminListBookings(),
+        api.adminListTutors(),
+        api.adminListFamilies(),
+        api.adminListPendingTutors(),
+        api.adminListPendingPayments(),
+        api.adminListPendingRequests(),
+        api.adminListFeedback(),
+      ]);
+
+      const failures = results
+        .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+        .map((result) => result.reason instanceof Error ? result.reason.message : "Unknown admin data error");
+
+      if (results[0].status === "fulfilled") setBookings(results[0].value.bookings || []);
+      if (results[1].status === "fulfilled") setTutors(results[1].value || []);
+      if (results[2].status === "fulfilled") setFamilies(results[2].value || []);
+      if (results[3].status === "fulfilled") setPendingTutors(results[3].value || []);
+      if (results[4].status === "fulfilled") setPendingPayments(results[4].value || []);
+      if (results[5].status === "fulfilled") setPendingRequests(results[5].value || []);
+      if (results[6].status === "fulfilled") setFeedback(results[6].value || []);
+
+      if (failures.length) {
+        setError(`Some admin sections could not load: ${[...new Set(failures)].join("; ")}`);
+      }
+    } catch (err) {
+      const status = err instanceof Error && "status" in err ? (err as Error & { status?: number }).status : undefined;
+      if (status === 401 || status === 403) {
+        clearAuthSession();
+        navigate("/admin/login", { replace: true });
+        return;
+      }
+      setError(err instanceof Error ? err.message : "Unable to load dashboard");
+    } finally {
+      setLoading(false);
     }
   }, [navigate]);
 
+  useEffect(() => {
+    const user = getCurrentUser();
+    if (!user || user.role !== "ADMIN") {
+      navigate("/admin/login");
+      return;
+    }
+
+    loadDashboard();
+  }, [loadDashboard, navigate]);
+
   const handleLogout = () => {
-    sessionStorage.removeItem('adminAuth');
-    navigate('/admin/login');
+    clearAuthSession();
+    navigate("/admin/login");
   };
 
-  const handleApprove = (id: string) => {
-    setApplications(prev => prev.map(a => a.id === id ? { ...a, status: 'approved' } : a));
-    setSelectedApp(null);
+  const approveTutor = async (id: number | string) => {
+    await api.adminApproveTutor(id);
+    await loadDashboard();
   };
 
-  const handleReject = (id: string) => {
-    setApplications(prev => prev.map(a => a.id === id ? { ...a, status: 'rejected' } : a));
-    setSelectedApp(null);
+  const rejectTutor = async (id: number | string) => {
+    await api.adminRejectTutor(id);
+    await loadDashboard();
   };
 
-  const statusBadge = (status: string) => {
-    const map: Record<string, string> = {
-      confirmed: 'bg-secondary/15 text-secondary',
-      pending: 'bg-primary/15 text-primary',
-      cancelled: 'bg-destructive/15 text-destructive',
-      approved: 'bg-secondary/15 text-secondary',
-      rejected: 'bg-destructive/15 text-destructive',
-    };
-    return <Badge className={`${map[status] || ''} border-0 capitalize`}>{status}</Badge>;
+  const approvePayment = async (id: number | string) => {
+    await api.adminApprovePayment(id);
+    await loadDashboard();
   };
 
-  const pendingCount = applications.filter(a => a.status === 'pending').length;
-  const unreadFeedback = feedbackList.filter(f => !f.read).length;
-
-  const handleMarkRead = (id: string) => {
-    markFeedbackRead(id);
-    setFeedbackList(getFeedback());
+  const rejectPayment = async (id: number | string) => {
+    await api.adminRejectPayment(id, "Rejected by admin");
+    await loadDashboard();
   };
+
+  const approveRequest = async (id: number | string) => {
+    await api.adminApproveRequest(id);
+    await loadDashboard();
+  };
+
+  const rejectRequest = async (id: number | string) => {
+    const reason = window.prompt("Reason for rejecting this request?") || "Rejected by admin";
+    await api.adminRejectRequest(id, reason);
+    await loadDashboard();
+  };
+
+  const setUserActive = async (id: number | string, isActive: boolean) => {
+    await api.adminSetUserActive(id, isActive);
+    await loadDashboard();
+  };
+
+  const deleteFeedback = async (id: number | string) => {
+    await api.adminDeleteFeedback(id);
+    await loadDashboard();
+  };
+
+  const approvedBookings = bookings.filter(
+    (booking) =>
+      ["CONFIRMED", "COMPLETED"].includes(booking.status) ||
+      booking.payment_status === "PAID",
+  );
+  const approvedTutors = tutors.filter(
+    (tutor) => (tutor.status || "").toLowerCase() === "approved",
+  );
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <Navbar />
       <main className="flex-1 px-4 py-8">
         <div className="container mx-auto max-w-6xl">
-          {/* Header */}
           <div className="mb-8 flex items-center justify-between">
             <div>
               <h1 className={`text-3xl font-bold text-foreground ${cls}`}>
-                {am ? 'የአስተዳዳሪ ዳሽቦርድ' : 'Admin Dashboard'}
+                Admin Dashboard
               </h1>
               <p className={`text-muted-foreground ${cls}`}>
-                {am ? 'ቦታ ማስያዣዎችን እና ማመልከቻዎችን ያስተዳድሩ' : 'Manage bookings and tutor applications'}
+                Review approvals first, then manage approved tutors, families, bookings, and feedback.
               </p>
             </div>
             <Button variant="outline" onClick={handleLogout} className="gap-2">
               <LogOut className="h-4 w-4" />
-              {am ? 'ውጣ' : 'Logout'}
+              Logout
             </Button>
           </div>
 
-          {/* Stats */}
-          <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-4">
+          {error && (
+            <div className="mb-6 rounded-lg bg-destructive/10 p-4 text-sm text-destructive">
+              {error}
+            </div>
+          )}
+
+          <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-5">
             <Card className="border-border">
               <CardContent className="flex items-center gap-4 p-5">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
-                  <CalendarDays className="h-6 w-6 text-primary" />
-                </div>
+                <CalendarDays className="h-8 w-8 text-primary" />
                 <div>
-                  <p className={`text-sm text-muted-foreground ${cls}`}>{am ? 'ጠቅላላ ቦታ ማስያዣ' : 'Total Bookings'}</p>
-                  <p className="text-2xl font-bold text-foreground">{bookings.length}</p>
+                  <p className="text-sm text-muted-foreground">Bookings</p>
+                  <p className="text-2xl font-bold">{approvedBookings.length}</p>
                 </div>
               </CardContent>
             </Card>
             <Card className="border-border">
               <CardContent className="flex items-center gap-4 p-5">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-secondary/10">
-                  <Users className="h-6 w-6 text-secondary" />
-                </div>
+                <Users className="h-8 w-8 text-secondary" />
                 <div>
-                  <p className={`text-sm text-muted-foreground ${cls}`}>{am ? 'ጠቅላላ ማመልከቻ' : 'Tutor Applications'}</p>
-                  <p className="text-2xl font-bold text-foreground">{applications.length}</p>
+                  <p className="text-sm text-muted-foreground">Approved Tutors</p>
+                  <p className="text-2xl font-bold">{approvedTutors.length}</p>
                 </div>
               </CardContent>
             </Card>
             <Card className="border-border">
               <CardContent className="flex items-center gap-4 p-5">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-accent/10">
-                  <ClipboardCheck className="h-6 w-6 text-accent" />
-                </div>
+                <Users className="h-8 w-8 text-primary" />
                 <div>
-                  <p className={`text-sm text-muted-foreground ${cls}`}>{am ? 'በመጠባበቅ ላይ' : 'Pending Review'}</p>
-                  <p className="text-2xl font-bold text-foreground">{pendingCount}</p>
+                  <p className="text-sm text-muted-foreground">Families</p>
+                  <p className="text-2xl font-bold">{families.length}</p>
                 </div>
               </CardContent>
             </Card>
             <Card className="border-border">
               <CardContent className="flex items-center gap-4 p-5">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
-                  <MessageSquare className="h-6 w-6 text-primary" />
-                </div>
+                <CreditCard className="h-8 w-8 text-primary" />
                 <div>
-                  <p className={`text-sm text-muted-foreground ${cls}`}>{am ? 'አስተያየቶች' : 'Feedback'}</p>
-                  <p className="text-2xl font-bold text-foreground">{feedbackList.length}</p>
+                  <p className="text-sm text-muted-foreground">Posting Approval</p>
+                  <p className="text-2xl font-bold">{pendingRequests.length}</p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-border">
+              <CardContent className="flex items-center gap-4 p-5">
+                <MessageSquare className="h-8 w-8 text-primary" />
+                <div>
+                  <p className="text-sm text-muted-foreground">Feedback</p>
+                  <p className="text-2xl font-bold">{feedback.length}</p>
                 </div>
               </CardContent>
             </Card>
           </div>
 
-          {/* Tabs */}
-          <Tabs defaultValue="bookings">
-            <TabsList className="mb-4">
-              <TabsTrigger value="bookings" className={cls}>
-                {am ? 'ቦታ ማስያዣዎች' : 'Bookings'}
-              </TabsTrigger>
-              <TabsTrigger value="applications" className={cls}>
-                {am ? 'ማመልከቻዎች' : 'Applications'}
-                {pendingCount > 0 && (
-                  <span className="ml-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-accent-foreground">
-                    {pendingCount}
-                  </span>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="feedback" className={cls}>
-                {am ? 'አስተያየቶች' : 'Feedback'}
-                {unreadFeedback > 0 && (
-                  <span className="ml-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
-                    {unreadFeedback}
-                  </span>
-                )}
-              </TabsTrigger>
-            </TabsList>
+          {loading ? (
+            <div className="py-20 text-center text-muted-foreground">
+              Loading dashboard...
+            </div>
+          ) : (
+            <Tabs defaultValue={searchParams.get("tab") || "booking-approval"}>
+              <TabsList className="mb-4 flex h-auto flex-wrap justify-start gap-2 p-2">
+                <TabsTrigger value="booking-approval">
+                  Booking Approval
+                  {pendingPayments.length > 0 && (
+                    <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+                      {pendingPayments.length}
+                    </span>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="tutor-approval">
+                  Tutor Approval
+                  {pendingTutors.length > 0 && (
+                    <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+                      {pendingTutors.length}
+                    </span>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="posting-approval">
+                  Posting Approval
+                  {pendingRequests.length > 0 && (
+                    <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+                      {pendingRequests.length}
+                    </span>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="approved-bookings">Approved Bookings</TabsTrigger>
+                <TabsTrigger value="approved-tutors">Approved Tutors</TabsTrigger>
+                <TabsTrigger value="families">Families</TabsTrigger>
+                <TabsTrigger value="feedback">Feedback</TabsTrigger>
+              </TabsList>
 
-            {/* Bookings Tab */}
-            <TabsContent value="bookings">
-              <Card className="border-border">
-                <CardHeader>
-                  <CardTitle className={cls}>{am ? 'የቦታ ማስያዣ ዝርዝር' : 'Booking Records'}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className={cls}>{am ? 'ተማሪ' : 'Student'}</TableHead>
-                        <TableHead className={cls}>{am ? 'ኢሜል' : 'Email'}</TableHead>
-                        <TableHead className={cls}>{am ? 'አስተማሪ' : 'Tutor'}</TableHead>
-                        <TableHead className={cls}>{am ? 'ትምህርት' : 'Subject'}</TableHead>
-                        <TableHead className={cls}>{am ? 'ቀን' : 'Date'}</TableHead>
-                        <TableHead className={cls}>{am ? 'ክፍያ' : 'Fee'}</TableHead>
-                        <TableHead className={cls}>{am ? 'ሁኔታ' : 'Status'}</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {bookings.map(b => (
-                        <TableRow key={b.id}>
-                          <TableCell className="font-medium">{b.studentName}</TableCell>
-                          <TableCell className="text-muted-foreground">{b.studentEmail}</TableCell>
-                          <TableCell>{b.tutorName}</TableCell>
-                          <TableCell>{b.subject}</TableCell>
-                          <TableCell>{b.date} · {b.time}</TableCell>
-                          <TableCell>{b.feePaid} {am ? 'ብር' : 'ETB'}</TableCell>
-                          <TableCell>{statusBadge(b.status)}</TableCell>
+              <TabsContent value="approved-bookings">
+                <Card className="border-border">
+                  <CardHeader>
+                    <CardTitle>Approved Bookings</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Student</TableHead>
+                          <TableHead>Family</TableHead>
+                          <TableHead>Tutor</TableHead>
+                          <TableHead>Schedule</TableHead>
+                          <TableHead>Amount</TableHead>
+                          <TableHead>Payment</TableHead>
+                          <TableHead>Status</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-            </TabsContent>
+                      </TableHeader>
+                      <TableBody>
+                        {approvedBookings.map((booking) => (
+                          <TableRow key={booking.id}>
+                            <TableCell>{booking.student_name || "-"}</TableCell>
+                            <TableCell>{booking.family_name || booking.family_id}</TableCell>
+                            <TableCell>{booking.tutor_name || booking.tutor_id}</TableCell>
+                            <TableCell>
+                              {booking.start_time || "-"}
+                              {booking.end_time ? ` to ${booking.end_time}` : ""}
+                            </TableCell>
+                            <TableCell>{booking.amount ?? "-"} ETB</TableCell>
+                            <TableCell>
+                              <div className="space-y-1 text-sm">
+                                <div>{statusBadge(booking.payment_status || "pending")}</div>
+                                <p className="text-muted-foreground">Ref: {booking.transaction_ref || "-"}</p>
+                                <DocumentLink href={booking.receipt_url} label="Receipt" />
+                              </div>
+                            </TableCell>
+                            <TableCell>{statusBadge(booking.status)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                    {approvedBookings.length === 0 && (
+                      <p className="py-8 text-center text-muted-foreground">No approved bookings yet.</p>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
 
-            {/* Applications Tab */}
-            <TabsContent value="applications">
-              <Card className="border-border">
-                <CardHeader>
-                  <CardTitle className={cls}>{am ? 'የአስተማሪ ማመልከቻዎች' : 'Tutor Applications'}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className={cls}>{am ? 'ስም' : 'Name'}</TableHead>
-                        <TableHead className={cls}>{am ? 'ትምህርቶች' : 'Subjects'}</TableHead>
-                        <TableHead className={cls}>{am ? 'ቦታ' : 'Location'}</TableHead>
-                        <TableHead className={cls}>{am ? 'ልምድ' : 'Experience'}</TableHead>
-                        <TableHead className={cls}>{am ? 'ሁኔታ' : 'Status'}</TableHead>
-                        <TableHead className={cls}>{am ? 'ድርጊት' : 'Actions'}</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {applications.map(a => (
-                        <TableRow key={a.id}>
-                          <TableCell className="font-medium">{a.name}</TableCell>
-                          <TableCell>{a.subjects.join(', ')}</TableCell>
-                          <TableCell>{a.location}</TableCell>
-                          <TableCell>{a.experience} {am ? 'ዓመት' : 'yrs'}</TableCell>
-                          <TableCell>{statusBadge(a.status)}</TableCell>
+              <TabsContent value="approved-tutors">
+                <Card className="border-border">
+                  <CardHeader>
+                    <CardTitle>Approved Tutors</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Email</TableHead>
+                          <TableHead>Location</TableHead>
+                          <TableHead>Profile</TableHead>
+                          <TableHead>Billing</TableHead>
+                          <TableHead>Account</TableHead>
+                          <TableHead>Action</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {approvedTutors.map((tutor) => {
+                          const active = Boolean(tutor.is_active);
+                          return (
+                            <TableRow key={tutor.id}>
+                              <TableCell>{tutor.full_name}</TableCell>
+                              <TableCell>{tutor.email}</TableCell>
+                              <TableCell>{[tutor.location_city, tutor.location_area].filter(Boolean).join(", ") || "-"}</TableCell>
+                              <TableCell>{statusBadge(tutor.status || "pending")}</TableCell>
+                              <TableCell>{tutor.billing_status || "-"}</TableCell>
+                              <TableCell>{statusBadge(active ? "active" : "disabled")}</TableCell>
+                              <TableCell>
+                                <Button
+                                  size="sm"
+                                  variant={active ? "destructive" : "outline"}
+                                  onClick={() => setUserActive(tutor.id, !active)}
+                                >
+                                  {active ? "Disable" : "Enable"}
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                    {approvedTutors.length === 0 && (
+                      <p className="py-8 text-center text-muted-foreground">No approved tutors found.</p>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="families">
+                <Card className="border-border">
+                  <CardHeader>
+                    <CardTitle>Families</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Email</TableHead>
+                          <TableHead>Phone</TableHead>
+                          <TableHead>Requests</TableHead>
+                          <TableHead>Bookings</TableHead>
+                          <TableHead>Account</TableHead>
+                          <TableHead>Action</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {families.map((family) => {
+                          const active = Boolean(family.is_active);
+                          return (
+                            <TableRow key={family.id}>
+                              <TableCell>{family.full_name}</TableCell>
+                              <TableCell>{family.email}</TableCell>
+                              <TableCell>{family.phone || "-"}</TableCell>
+                              <TableCell>{family.requests_count || 0}</TableCell>
+                              <TableCell>{family.bookings_count || 0}</TableCell>
+                              <TableCell>{statusBadge(active ? "active" : "disabled")}</TableCell>
+                              <TableCell>
+                                <Button
+                                  size="sm"
+                                  variant={active ? "destructive" : "outline"}
+                                  onClick={() => setUserActive(family.id, !active)}
+                                >
+                                  {active ? "Disable" : "Enable"}
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                    {families.length === 0 && (
+                      <p className="py-8 text-center text-muted-foreground">No families found.</p>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="tutor-approval">
+                <Card className="border-border">
+                  <CardHeader>
+                    <CardTitle>Tutor Approval</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Email</TableHead>
+                          <TableHead>Location</TableHead>
+                          <TableHead>Experience</TableHead>
+                          <TableHead>Rate</TableHead>
+                          <TableHead>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {pendingTutors.map((tutor) => (
+                          <React.Fragment key={tutor.tutor_id || tutor.id}>
+                          <TableRow>
+                            <TableCell>{tutor.full_name || tutor.name}</TableCell>
+                            <TableCell>{tutor.email || "-"}</TableCell>
+                            <TableCell>
+                              {[tutor.location_city, tutor.location_area || tutor.location]
+                                .filter(Boolean)
+                                .join(", ") || "-"}
+                            </TableCell>
+                            <TableCell>{tutor.experience_years ?? 0} yrs</TableCell>
+                          <TableCell>{summarizeGradePricing(tutor.hourly_rates_by_grade, tutor.hourly_rate)}</TableCell>
                           <TableCell>
-                            <div className="flex gap-2">
-                              <Button size="sm" variant="outline" onClick={() => setSelectedApp(a)} className="gap-1">
-                                <Eye className="h-3.5 w-3.5" />
-                                {am ? 'ይመልከቱ' : 'View'}
-                              </Button>
-                              {a.status === 'pending' && (
-                                <>
-                                  <Button size="sm" onClick={() => handleApprove(a.id)} className="gap-1 bg-secondary text-secondary-foreground hover:bg-secondary/90">
-                                    <CheckCircle className="h-3.5 w-3.5" />
-                                  </Button>
-                                  <Button size="sm" variant="destructive" onClick={() => handleReject(a.id)} className="gap-1">
-                                    <XCircle className="h-3.5 w-3.5" />
-                                  </Button>
-                                </>
-                              )}
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  onClick={() => approveTutor(tutor.tutor_id || tutor.id)}
+                                  className="gap-1 bg-secondary text-secondary-foreground hover:bg-secondary/90"
+                                >
+                                  <CheckCircle className="h-3.5 w-3.5" />
+                                  Approve
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => rejectTutor(tutor.tutor_id || tutor.id)}
+                                  className="gap-1"
+                                >
+                                  <XCircle className="h-3.5 w-3.5" />
+                                  Reject
+                                </Button>
+                              </div>
+                          </TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell colSpan={6}>
+                            <div className="grid gap-3 rounded-lg bg-muted/50 p-3 text-sm md:grid-cols-3">
+                              <div>
+                                <p className="font-medium">Application details</p>
+                                <p className="text-muted-foreground">Gender: {tutor.gender || "-"}</p>
+                                <p className="text-muted-foreground">Status: {tutor.employment_status || "-"}</p>
+                                <p className="text-muted-foreground">Organization: {tutor.organization || "-"}</p>
+                                <p className="text-muted-foreground">CGPA: {tutor.cgpa || "-"}</p>
+                              </div>
+                              <div>
+                                <p className="font-medium">Teaching scope</p>
+                                <p className="text-muted-foreground">Grades: {parseList(tutor.grade_levels).join(", ") || "-"}</p>
+                                <p className="text-muted-foreground">Pricing: {formatPricing(tutor.hourly_rates_by_grade)}</p>
+                                <p className="text-muted-foreground">Subjects: {parseList(tutor.subjects).join(", ") || "-"}</p>
+                                <p className="text-muted-foreground">Languages: {parseList(tutor.languages).join(", ") || "-"}</p>
+                                <p className="text-muted-foreground">Curriculum: {parseList(tutor.curriculum_options).join(", ") || "-"}</p>
+                              </div>
+                              <div>
+                                <p className="font-medium">Private documents</p>
+                                <div className="mt-1 flex flex-wrap gap-2">
+                                  <DocumentLink href={tutor.profile_photo_url} label="Photo" />
+                                  <DocumentLink href={tutor.fayda_id_url} label="Fayda ID" />
+                                  <DocumentLink href={tutor.highschool_transcript_url} label="Transcript" />
+                                  <DocumentLink href={tutor.tempo_url} label="Tempo" />
+                                  {parseList(tutor.certification_urls).map((url, index) => (
+                                    <DocumentLink key={url} href={url} label={`Certificate ${index + 1}`} />
+                                  ))}
+                                </div>
+                              </div>
                             </div>
                           </TableCell>
                         </TableRow>
+                          </React.Fragment>
                       ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-            </TabsContent>
+                      </TableBody>
+                    </Table>
+                    {pendingTutors.length === 0 && (
+                      <p className="py-8 text-center text-muted-foreground">No tutor applications waiting for approval.</p>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
 
-            {/* Feedback Tab */}
-            <TabsContent value="feedback">
-              <Card className="border-border">
-                <CardHeader>
-                  <CardTitle className={cls}>{am ? 'የተጠቃሚ አስተያየቶች' : 'User Feedback'}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {feedbackList.length === 0 ? (
-                    <p className={`text-center text-muted-foreground py-8 ${cls}`}>
-                      {am ? 'ምንም አስተያየት የለም።' : 'No feedback received yet.'}
-                    </p>
-                  ) : (
-                    <div className="space-y-4">
-                      {feedbackList.map(f => (
-                        <div key={f.id} className={`rounded-lg border p-4 ${!f.read ? 'border-primary/30 bg-primary/5' : 'border-border'}`}>
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="font-medium text-foreground">{f.name}</span>
-                                <span className="text-xs text-muted-foreground">{f.email}</span>
-                                {!f.read && <Badge className="bg-primary/15 text-primary border-0 text-[10px]">{am ? 'አዲስ' : 'New'}</Badge>}
+              <TabsContent value="posting-approval">
+                <Card className="border-border">
+                  <CardHeader>
+                    <CardTitle>Posting Approval</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid gap-4">
+                      {pendingRequests.map((request) => (
+                        <div key={request.id} className="rounded-lg border border-border p-4">
+                          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h3 className="text-lg font-semibold">{request.title}</h3>
+                                {statusBadge(request.status)}
                               </div>
-                              <div className="flex gap-0.5 mb-2">
-                                {[1, 2, 3, 4, 5].map(s => (
-                                  <Star key={s} className={`h-4 w-4 ${f.rating >= s ? 'fill-primary text-primary' : 'text-muted-foreground/30'}`} />
-                                ))}
-                              </div>
-                              <p className="text-sm text-foreground">{f.message}</p>
-                              <p className="text-xs text-muted-foreground mt-2">{f.submittedAt}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {request.family_name || "Family"} - {request.family_email || "-"}
+                              </p>
                             </div>
-                            {!f.read && (
-                              <Button size="sm" variant="outline" onClick={() => handleMarkRead(f.id)} className="gap-1 shrink-0">
-                                <Mail className="h-3.5 w-3.5" />
-                                {am ? 'ተነበበ' : 'Mark Read'}
+                            <div className="flex flex-wrap gap-2">
+                              <Button onClick={() => approveRequest(request.id)} className="gap-2 bg-secondary text-secondary-foreground hover:bg-secondary/90">
+                                <CheckCircle className="h-4 w-4" />
+                                Approve
                               </Button>
-                            )}
+                              <Button variant="destructive" onClick={() => rejectRequest(request.id)} className="gap-2">
+                                <XCircle className="h-4 w-4" />
+                                Reject
+                              </Button>
+                            </div>
+                          </div>
+                          <div className="mt-4 grid gap-3 rounded-lg bg-muted/40 p-3 text-sm md:grid-cols-3">
+                            <div>
+                              <p className="font-medium">Learning details</p>
+                              <p className="text-muted-foreground">Subject: {request.subject || "-"}</p>
+                              <p className="text-muted-foreground">Grade: {request.grade}</p>
+                              <p className="text-muted-foreground">Curriculum: {request.curriculum}</p>
+                              <p className="text-muted-foreground">Schedule: {request.days_per_week} days/week, {request.hours_per_day} hours/day</p>
+                            </div>
+                            <div>
+                              <p className="font-medium">Payment</p>
+                              <p className="text-muted-foreground">Amount: {request.request_payment_amount || "-"} ETB</p>
+                              <p className="text-muted-foreground">Reference: {request.request_payment_transaction_ref || "-"}</p>
+                              {request.request_payment_receipt_url && (
+                                <a href={assetUrl(request.request_payment_receipt_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+                                  View receipt
+                                  <ExternalLink className="h-3.5 w-3.5" />
+                                </a>
+                              )}
+                            </div>
+                            <div>
+                              <p className="font-medium">Description</p>
+                              <p className="whitespace-pre-line text-muted-foreground">{request.description || "-"}</p>
+                            </div>
                           </div>
                         </div>
                       ))}
+                      {pendingRequests.length === 0 && (
+                        <p className="py-8 text-center text-muted-foreground">No pending requests.</p>
+                      )}
                     </div>
-                  )}
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="booking-approval">
+                <Card className="border-border">
+                  <CardHeader>
+                    <CardTitle>Booking Approval</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Booking</TableHead>
+                          <TableHead>Family</TableHead>
+                          <TableHead>Tutor</TableHead>
+                          <TableHead>Amount</TableHead>
+                          <TableHead>Reference</TableHead>
+                          <TableHead>Receipt</TableHead>
+                          <TableHead>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {pendingPayments.map((payment) => (
+                          <TableRow key={payment.id}>
+                            <TableCell>{payment.booking_id}</TableCell>
+                            <TableCell>{payment.family_name || payment.family_id}</TableCell>
+                            <TableCell>{payment.tutor_name || payment.tutor_id}</TableCell>
+                            <TableCell>{payment.amount} ETB</TableCell>
+                            <TableCell>{payment.transaction_ref || "-"}</TableCell>
+                            <TableCell>
+                              <DocumentLink href={payment.receipt_url} label="View receipt" />
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  onClick={() => approvePayment(payment.id)}
+                                  className="gap-1 bg-secondary text-secondary-foreground hover:bg-secondary/90"
+                                >
+                                  <CheckCircle className="h-3.5 w-3.5" />
+                                  Approve
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => rejectPayment(payment.id)}
+                                  className="gap-1"
+                                >
+                                  <XCircle className="h-3.5 w-3.5" />
+                                  Reject
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                    {pendingPayments.length === 0 && (
+                      <p className="py-8 text-center text-muted-foreground">No booking payments waiting for approval.</p>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="feedback">
+                <Card className="border-border">
+                  <CardHeader>
+                    <CardTitle>User Feedback</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {feedback.length === 0 ? (
+                        <p className="py-8 text-center text-muted-foreground">
+                          No feedback received yet.
+                        </p>
+                      ) : (
+                        feedback.map((item) => (
+                          <div key={item.id} className="rounded-lg border border-border p-4">
+                            <div className="flex items-start justify-between gap-4">
+                              <div>
+                                <p className="font-medium">
+                                  {item.author_name || item.author_id || "Visitor"}
+                                </p>
+                                <p className="text-sm text-muted-foreground">
+                                  {item.role} - {item.rating}/5 - {item.created_at || ""}
+                                </p>
+                                <p className="mt-2 text-sm">{item.comments || "-"}</p>
+                              </div>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => deleteFeedback(item.id)}
+                                className="gap-1"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                Delete
+                              </Button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
+          )}
         </div>
       </main>
-
-      {/* Application Detail Dialog */}
-      <Dialog open={!!selectedApp} onOpenChange={() => setSelectedApp(null)}>
-        {selectedApp && (
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle className={cls}>{am ? 'ማመልከቻ ዝርዝር' : 'Application Details'}</DialogTitle>
-              <DialogDescription>{selectedApp.name}</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-3 text-sm">
-              <div className="grid grid-cols-2 gap-3">
-                <div><span className="text-muted-foreground">{am ? 'ኢሜል' : 'Email'}:</span> {selectedApp.email}</div>
-                <div><span className="text-muted-foreground">{am ? 'ስልክ' : 'Phone'}:</span> {selectedApp.phone}</div>
-                <div><span className="text-muted-foreground">{am ? 'ቦታ' : 'Location'}:</span> {selectedApp.location}</div>
-                <div><span className="text-muted-foreground">{am ? 'ዘዴ' : 'Mode'}:</span> {selectedApp.mode}</div>
-                <div><span className="text-muted-foreground">{am ? 'ልምድ' : 'Experience'}:</span> {selectedApp.experience} {am ? 'ዓመት' : 'years'}</div>
-                <div><span className="text-muted-foreground">{am ? 'ዋጋ' : 'Price'}:</span> {selectedApp.pricePerSession} {am ? 'ብር' : 'ETB'}</div>
-              </div>
-              <div>
-                <span className="text-muted-foreground">{am ? 'ትምህርቶች' : 'Subjects'}:</span>
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {selectedApp.subjects.map(s => <Badge key={s} variant="secondary">{s}</Badge>)}
-                </div>
-              </div>
-              <div>
-                <span className="text-muted-foreground">{am ? 'ስለ እርሷ/እርሱ' : 'Bio'}:</span>
-                <p className="mt-1 text-foreground">{selectedApp.bio}</p>
-              </div>
-              <div>
-                <span className="text-muted-foreground">{am ? 'የምስክር ወረቀቶች' : 'Certifications'}:</span>
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {selectedApp.certifications.map(c => <Badge key={c} variant="outline">{c}</Badge>)}
-                </div>
-              </div>
-              <div>
-                <span className="text-muted-foreground">{am ? 'ሁኔታ' : 'Status'}:</span> {statusBadge(selectedApp.status)}
-              </div>
-            </div>
-            {selectedApp.status === 'pending' && (
-              <DialogFooter className="gap-2">
-                <Button variant="destructive" onClick={() => handleReject(selectedApp.id)}>
-                  <XCircle className="mr-1.5 h-4 w-4" /> {am ? 'ውድቅ አድርግ' : 'Reject'}
-                </Button>
-                <Button onClick={() => handleApprove(selectedApp.id)} className="bg-secondary text-secondary-foreground hover:bg-secondary/90">
-                  <CheckCircle className="mr-1.5 h-4 w-4" /> {am ? 'አጽድቅ' : 'Approve'}
-                </Button>
-              </DialogFooter>
-            )}
-          </DialogContent>
-        )}
-      </Dialog>
     </div>
   );
-};
-
-// Helper used inside the component — re-declared at module level for the dialog
-const statusBadge = (status: string) => {
-  const map: Record<string, string> = {
-    confirmed: 'bg-secondary/15 text-secondary',
-    pending: 'bg-primary/15 text-primary',
-    cancelled: 'bg-destructive/15 text-destructive',
-    approved: 'bg-secondary/15 text-secondary',
-    rejected: 'bg-destructive/15 text-destructive',
-  };
-  return <Badge className={`${map[status] || ''} border-0 capitalize`}>{status}</Badge>;
 };
 
 export default AdminDashboard;

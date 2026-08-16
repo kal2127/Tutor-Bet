@@ -1,6 +1,6 @@
-const { success } = require("zod");
 const { query } = require("../../db/query");
 const HttpError = require("../../utils/httpError");
+const { summarizeHourlyRate } = require("../../utils/gradePricing");
 const {
   updateTutorProfileSchema,
   updateAvailabilitySchema,
@@ -29,10 +29,23 @@ async function getMyTutorProfile(req, res, next) {
          tp.is_available,
          tb.registration_paid,
          tb.next_renewal_date,
-         tb.billing_status
+         tb.billing_status,
+         tad.gender,
+         tad.employment_status,
+         tad.organization,
+         tad.grade_levels,
+         tad.hourly_rates_by_grade,
+         tad.subjects,
+         tad.languages,
+         tad.curriculum_options,
+         tad.has_tempo,
+         tad.cgpa,
+         tad.profile_photo_url,
+         tad.certification_urls
        FROM users u
        INNER JOIN tutor_profiles tp ON tp.tutor_id = u.id
        INNER JOIN tutor_billing tb ON tb.tutor_id = u.id
+       LEFT JOIN tutor_application_details tad ON tad.tutor_id = u.id
        WHERE u.id = ? AND u.role = 'TUTOR'`,
       [tutorId],
     );
@@ -41,10 +54,7 @@ async function getMyTutorProfile(req, res, next) {
       throw new HttpError(404, "Tutor profile not found");
     }
 
-    res.json({
-      success: true,
-      profile: rows[0],
-    });
+    return res.ok(rows[0], "Tutor profile fetched successfully");
   } catch (e) {
     next(e);
   }
@@ -64,6 +74,10 @@ async function updateMyTutorProfile(req, res, next) {
       throw new HttpError(404, "Tutor profile not found");
     }
 
+    const nextHourlyRate = data.hourly_rates_by_grade
+      ? summarizeHourlyRate(data.hourly_rates_by_grade, data.hourly_rate)
+      : data.hourly_rate;
+
     await query(
       `UPDATE tutor_profiles
        SET bio = COALESCE(?, bio),
@@ -79,19 +93,22 @@ async function updateMyTutorProfile(req, res, next) {
         data.location_area ?? null,
         data.education ?? null,
         data.experience_years ?? null,
-        data.hourly_rate ?? null,
+        nextHourlyRate ?? null,
         tutorId,
       ],
     );
 
-    res.json({
-      success: true,
-      message: "Tutor profile updated successfully",
-    });
-  } catch (e) {
-    if (e?.name === "ZodError") {
-      return next(new HttpError(400, "Validation error", e.errors));
+    if (data.hourly_rates_by_grade !== undefined) {
+      await query(
+        `UPDATE tutor_application_details
+         SET hourly_rates_by_grade = CAST(? AS JSON)
+         WHERE tutor_id = ?`,
+        [JSON.stringify(data.hourly_rates_by_grade || {}), tutorId],
+      );
     }
+
+    return res.ok(null, "Tutor profile updated successfully");
+  } catch (e) {
     next(e);
   }
 }
@@ -117,15 +134,11 @@ async function updateTutorAvailability(req, res, next) {
       [data.is_available ? 1 : 0, tutorId],
     );
 
-    res.json({
-      success: true,
-      message: `Tutor availability updated to ${data.is_available ? "ACTIVE" : "INACTIVE"}`,
-      is_available: data.is_available,
-    });
+    return res.ok(
+      { is_available: data.is_available },
+      `Tutor availability updated to ${data.is_available ? "ACTIVE" : "INACTIVE"}`,
+    );
   } catch (e) {
-    if (e?.name === "ZodError") {
-      return next(new HttpError(400, "Validation error", e.issues || e.errors));
-    }
     next(e);
   }
 }
@@ -145,9 +158,19 @@ async function listPublicTutors(req, res, next) {
         tp.experience_years,
         tp.hourly_rate,
         tp.is_available,
-        tp.status
+        tp.status,
+        tad.gender,
+        tad.employment_status,
+        tad.organization,
+        tad.grade_levels,
+        tad.hourly_rates_by_grade,
+        tad.subjects,
+        tad.languages,
+        tad.curriculum_options,
+        tad.profile_photo_url
       FROM users u
       INNER JOIN tutor_profiles tp ON tp.tutor_id = u.id
+      LEFT JOIN tutor_application_details tad ON tad.tutor_id = u.id
       WHERE u.role = 'TUTOR'
         AND tp.status = 'APPROVED'
         AND tp.is_available = 1
@@ -179,15 +202,11 @@ async function listPublicTutors(req, res, next) {
 
     const rows = await query(sql, params);
 
-    res.json({
-      success: true,
-      count: rows.length,
-      tutors: rows,
-    });
+    return res.ok(
+      { tutors: rows, count: rows.length },
+      "Tutors fetched successfully",
+    );
   } catch (e) {
-    if (e?.name === "ZodError") {
-      return next(new HttpError(400, "Validation error", e.issues || e.errors));
-    }
     next(e);
   }
 }
@@ -211,9 +230,19 @@ async function getPublicTutorById(req, res, next) {
          tp.experience_years,
          tp.hourly_rate,
          tp.is_available,
-         tp.status
+         tp.status,
+         tad.gender,
+         tad.employment_status,
+         tad.organization,
+         tad.grade_levels,
+         tad.hourly_rates_by_grade,
+         tad.subjects,
+         tad.languages,
+         tad.curriculum_options,
+         tad.profile_photo_url
        FROM users u
        INNER JOIN tutor_profiles tp ON tp.tutor_id = u.id
+       LEFT JOIN tutor_application_details tad ON tad.tutor_id = u.id
        WHERE u.id = ?
          AND u.role = 'TUTOR'
          AND tp.status = 'APPROVED'
@@ -225,10 +254,7 @@ async function getPublicTutorById(req, res, next) {
       throw new HttpError(404, "Tutor not found");
     }
 
-    res.json({
-      success: true,
-      tutor: rows[0],
-    });
+    return res.ok({ tutor: rows[0] }, "Tutor fetched successfully");
   } catch (e) {
     next(e);
   }
