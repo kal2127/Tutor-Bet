@@ -37,7 +37,29 @@ async function applyToJobPost(req, res, next) {
       data,
     );
 
-    return res.created(result, "Applied to job successfully.");
+    return res.created(
+      result,
+      "You successfully applied for this request. The family will reach you if they choose you.",
+    );
+  } catch (e) {
+    next(e);
+  }
+}
+
+async function closeJobPost(req, res, next) {
+  try {
+    const jobPostId = Number(req.params.id);
+
+    if (!Number.isInteger(jobPostId) || jobPostId <= 0) {
+      throw new HttpError(400, "Invalid job post id");
+    }
+
+    const result = await jobPostService.closeJobPost(req.user.id, jobPostId);
+
+    return res.ok(
+      result,
+      "Request closed. Tutors will no longer see it as an open job.",
+    );
   } catch (e) {
     next(e);
   }
@@ -119,6 +141,7 @@ module.exports = {
   listMyJobPosts,
   listOpenJobPostsForTutors,
   applyToJobPost,
+  closeJobPost,
   listApplicationsForMyJob,
   selectTutorApplication,
 };

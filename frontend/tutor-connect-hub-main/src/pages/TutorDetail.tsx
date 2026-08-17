@@ -8,6 +8,7 @@ import {
   Lock,
   MapPin,
   Star,
+  ExternalLink,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n-context";
 import { Tutor, toUiTutor } from "@/lib/tutors";
@@ -28,6 +29,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { api, getCurrentUser } from "@/lib/api";
+
+const API_ORIGIN = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/api\/?$/, "").replace(/\/$/, "");
+
+function assetUrl(href?: string | null) {
+  if (!href) return "";
+  if (/^https?:\/\//i.test(href)) return href;
+  return `${API_ORIGIN}${href.startsWith("/") ? href : `/${href}`}`;
+}
 
 const TutorDetail: React.FC = () => {
   const { id } = useParams();
@@ -50,8 +59,6 @@ const TutorDetail: React.FC = () => {
   const [hoursPerDay, setHoursPerDay] = useState(1);
   const [requirement, setRequirement] = useState("");
   const [bookingLoading, setBookingLoading] = useState(false);
-  const [transactionRef, setTransactionRef] = useState("");
-  const [receiptFile, setReceiptFile] = useState<File | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -95,15 +102,6 @@ const TutorDetail: React.FC = () => {
       return;
     }
 
-    if (!receiptFile) {
-      toast({
-        title: "Receipt required",
-        description: "Upload the booking payment receipt before confirming.",
-        variant: "destructive",
-      });
-      return;
-    }
-
     const now = new Date();
     const startTime = now.toISOString();
     const endTime = new Date(now.getTime() + hoursPerDay * 60 * 60 * 1000).toISOString();
@@ -111,7 +109,7 @@ const TutorDetail: React.FC = () => {
 
     setBookingLoading(true);
     try {
-      const booking = await api.createBooking({
+      await api.createBooking({
         tutor_id: Number(id),
         student_name: studentName,
         grade: gradeLevel,
@@ -125,15 +123,11 @@ const TutorDetail: React.FC = () => {
         amount: bookingRate.amount,
       });
 
-      await api.uploadBookingPaymentProof(booking.bookingId, {
-        receipt: receiptFile,
-        transaction_ref: transactionRef.trim() || undefined,
-      });
       setBookingOpen(false);
       setBookingComplete(true);
       toast({
         title: "Booking submitted",
-        description: "Your payment receipt was uploaded for admin verification.",
+        description: "Your booking is waiting for admin review.",
       });
     } catch (err) {
       toast({
@@ -251,17 +245,25 @@ const TutorDetail: React.FC = () => {
                 <h2 className={`mb-3 text-lg font-semibold ${f}`}>
                   {t.tutorDetail.qualifications}
                 </h2>
-                <ul className="space-y-2">
-                  {tutor.certifications.map((certification) => (
-                    <li
-                      key={certification}
-                      className="flex items-center gap-2 text-sm text-muted-foreground"
-                    >
-                      <CheckCircle className="h-4 w-4 text-secondary" />
-                      {certification}
-                    </li>
-                  ))}
-                </ul>
+                {tutor.certifications.length ? (
+                  <div className="flex flex-wrap gap-2">
+                    {tutor.certifications.map((certification, index) => (
+                      <a
+                        key={certification}
+                        href={assetUrl(certification)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm font-medium text-primary hover:bg-primary/10"
+                      >
+                        <CheckCircle className="h-4 w-4 text-secondary" />
+                        Certificate / Award {index + 1}
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </a>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No certifications or awards uploaded.</p>
+                )}
               </div>
             </div>
           </div>
@@ -297,11 +299,11 @@ const TutorDetail: React.FC = () => {
                   <div className="text-center">
                     <CheckCircle className="mx-auto mb-2 h-8 w-8 text-secondary" />
                     <p className="text-sm font-medium text-secondary">
-                      Booking submitted. Your receipt is waiting for admin verification.
+                      Booking submitted. Your booking is waiting for admin review.
                     </p>
                   </div>
                   <p className="text-center text-sm text-muted-foreground">
-                    Admin will verify the payment and confirm the booking.
+                    Admin will review and confirm the booking.
                   </p>
                 </div>
               ) : (
@@ -338,8 +340,7 @@ const TutorDetail: React.FC = () => {
           <DialogHeader>
             <DialogTitle className={f}>{t.tutorDetail.bookSession}</DialogTitle>
             <DialogDescription className={f}>
-              Fill the student details and upload your booking payment receipt.
-              Booking fee: {gradeLevel ? selectedBookingRate.label : summarizeGradePricing(tutor.hourlyRatesByGrade, tutor.price)}
+              Fill the student details. Booking rate: {gradeLevel ? selectedBookingRate.label : summarizeGradePricing(tutor.hourlyRatesByGrade, tutor.price)}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4 md:grid-cols-2">
@@ -398,14 +399,6 @@ const TutorDetail: React.FC = () => {
             <div className="md:col-span-2">
               <Label className={f}>Additional requirement</Label>
               <textarea value={requirement} onChange={(e) => setRequirement(e.target.value)} placeholder="Any learning needs, schedule details, or requirements" className="min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
-            </div>
-            <div>
-              <Label className={f}>Payment transaction ref</Label>
-              <Input value={transactionRef} onChange={(e) => setTransactionRef(e.target.value)} placeholder="Optional transaction reference" />
-            </div>
-            <div>
-              <Label className={f}>Booking payment receipt</Label>
-              <Input type="file" accept="image/*,.pdf" onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)} />
             </div>
             <div className="md:col-span-2 rounded-md bg-muted/50 p-3 text-sm text-muted-foreground">
               Selected grade rate: {selectedBookingRate.label}

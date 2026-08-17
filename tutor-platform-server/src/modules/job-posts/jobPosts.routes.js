@@ -4,6 +4,7 @@ const {
   listMyJobPosts,
   listOpenJobPostsForTutors,
   applyToJobPost,
+  closeJobPost,
   listApplicationsForMyJob,
   selectTutorApplication,
 } = require("./jobPosts.controller");
@@ -31,6 +32,13 @@ router.get(
   authRequired,
   requireRole("FAMILY"),
   listApplicationsForMyJob,
+);
+
+router.patch(
+  "/family/job-posts/:id/close",
+  authRequired,
+  requireRole("FAMILY"),
+  closeJobPost,
 );
 
 router.patch(

@@ -7,6 +7,53 @@ const {
   listTutorsQuerySchema,
 } = require("./tutors.validators");
 
+function parseMaybeJson(value) {
+  if (Array.isArray(value)) return value;
+  if (value === undefined || value === null || value === "") return undefined;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function parseJsonArray(value) {
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  if (typeof value !== "string" || !value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function normalizeTutorProfileBody(body = {}) {
+  const normalized = { ...body };
+
+  [
+    "grade_levels",
+    "hourly_rates_by_grade",
+    "subjects",
+    "languages",
+    "curriculum_options",
+  ].forEach((key) => {
+    if (normalized[key] !== undefined) {
+      normalized[key] = parseMaybeJson(normalized[key]);
+    }
+  });
+
+  ["experience_years", "hourly_rate", "cgpa"].forEach((key) => {
+    if (normalized[key] === "") delete normalized[key];
+  });
+
+  return normalized;
+}
+
+function fileUrl(file) {
+  return file ? `/uploads/tutor-applications/${file.filename}` : null;
+}
+
 async function getMyTutorProfile(req, res, next) {
   try {
     const tutorId = req.user.id;
@@ -63,7 +110,9 @@ async function getMyTutorProfile(req, res, next) {
 async function updateMyTutorProfile(req, res, next) {
   try {
     const tutorId = req.user.id;
-    const data = updateTutorProfileSchema.parse(req.body);
+    const data = updateTutorProfileSchema.parse(
+      normalizeTutorProfileBody(req.body || {}),
+    );
 
     const existing = await query(
       "SELECT tutor_id FROM tutor_profiles WHERE tutor_id = ?",
@@ -98,12 +147,68 @@ async function updateMyTutorProfile(req, res, next) {
       ],
     );
 
-    if (data.hourly_rates_by_grade !== undefined) {
+    const detailRows = await query(
+      "SELECT certification_urls FROM tutor_application_details WHERE tutor_id = ?",
+      [tutorId],
+    );
+    const files = req.files || {};
+    const profilePhotoUrl = fileUrl(files.profile_photo?.[0]);
+    const newCertificationUrls = (files.certifications || [])
+      .map((file) => fileUrl(file))
+      .filter(Boolean);
+
+    const detailUpdates = [];
+    const detailParams = [];
+
+    const setDetail = (column, value) => {
+      if (value !== undefined) {
+        detailUpdates.push(`${column} = ?`);
+        detailParams.push(value);
+      }
+    };
+
+    setDetail(
+      "grade_levels",
+      data.grade_levels !== undefined ? JSON.stringify(data.grade_levels || []) : undefined,
+    );
+    setDetail(
+      "hourly_rates_by_grade",
+      data.hourly_rates_by_grade !== undefined ? JSON.stringify(data.hourly_rates_by_grade || {}) : undefined,
+    );
+    setDetail(
+      "subjects",
+      data.subjects !== undefined ? JSON.stringify(data.subjects || []) : undefined,
+    );
+    setDetail(
+      "languages",
+      data.languages !== undefined ? JSON.stringify(data.languages || []) : undefined,
+    );
+    setDetail(
+      "curriculum_options",
+      data.curriculum_options !== undefined ? JSON.stringify(data.curriculum_options || []) : undefined,
+    );
+    setDetail("gender", data.gender);
+    setDetail("employment_status", data.employment_status);
+    setDetail("organization", data.organization);
+    setDetail("cgpa", data.cgpa);
+    setDetail("profile_photo_url", profilePhotoUrl || undefined);
+
+    if (newCertificationUrls.length) {
+      const existingCertificationUrls = parseJsonArray(
+        detailRows[0]?.certification_urls,
+      );
+      setDetail(
+        "certification_urls",
+        JSON.stringify([...existingCertificationUrls, ...newCertificationUrls]),
+      );
+    }
+
+    if (detailUpdates.length) {
       await query(
         `UPDATE tutor_application_details
-         SET hourly_rates_by_grade = CAST(? AS JSON)
+         SET ${detailUpdates.join(", ")}
          WHERE tutor_id = ?`,
-        [JSON.stringify(data.hourly_rates_by_grade || {}), tutorId],
+        [...detailParams, tutorId],
       );
     }
 
@@ -167,7 +272,8 @@ async function listPublicTutors(req, res, next) {
         tad.subjects,
         tad.languages,
         tad.curriculum_options,
-        tad.profile_photo_url
+        tad.profile_photo_url,
+        tad.certification_urls
       FROM users u
       INNER JOIN tutor_profiles tp ON tp.tutor_id = u.id
       LEFT JOIN tutor_application_details tad ON tad.tutor_id = u.id
@@ -239,7 +345,8 @@ async function getPublicTutorById(req, res, next) {
          tad.subjects,
          tad.languages,
          tad.curriculum_options,
-         tad.profile_photo_url
+         tad.profile_photo_url,
+         tad.certification_urls
        FROM users u
        INNER JOIN tutor_profiles tp ON tp.tutor_id = u.id
        LEFT JOIN tutor_application_details tad ON tad.tutor_id = u.id

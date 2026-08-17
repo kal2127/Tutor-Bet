@@ -29,7 +29,7 @@ const Footer: React.FC = () => {
               <Link to="/tutors" className={`text-sm text-muted-foreground hover:text-primary ${f}`}>
                 {t.nav.findTutors}
               </Link>
-              <Link to="/signup?role=tutor" className={`text-sm text-muted-foreground hover:text-primary ${f}`}>
+              <Link to="/become-tutor?fresh=1" className={`text-sm text-muted-foreground hover:text-primary ${f}`}>
                 {t.nav.becomeTutor}
               </Link>
             </div>

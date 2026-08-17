@@ -65,6 +65,7 @@ const BecomeTutor: React.FC = () => {
   const { toast } = useToast();
   const location = useLocation();
   const navigate = useNavigate();
+  const isFreshStart = new URLSearchParams(location.search).get("fresh") === "1";
   const signupState = (location.state || {}) as {
     fullName?: string;
     email?: string;
@@ -72,7 +73,10 @@ const BecomeTutor: React.FC = () => {
     password?: string;
     googleIdToken?: string;
   };
-  const restoredDraft = useMemo(() => loadTutorApplicationDraft(), []);
+  const restoredDraft = useMemo(
+    () => isFreshStart ? { form: {} as Partial<typeof initialForm>, step: 0 } : loadTutorApplicationDraft(),
+    [isFreshStart],
+  );
   const [step, setStep] = useState(restoredDraft.step);
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -107,6 +111,10 @@ const BecomeTutor: React.FC = () => {
   useEffect(() => {
     saveTutorApplicationDraft(form, step);
   }, [form, step]);
+
+  useEffect(() => {
+    if (isFreshStart) clearTutorApplicationDraft();
+  }, [isFreshStart]);
 
   const update = <K extends keyof typeof form>(field: K, value: (typeof form)[K]) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -305,7 +313,7 @@ const BecomeTutor: React.FC = () => {
             ))}
           </div>
 
-          <form onSubmit={submit}>
+          <form onSubmit={submit} autoComplete="off">
             <Card className="border-border">
               <CardHeader>
                 <CardTitle>{steps[step].title}</CardTitle>
@@ -326,11 +334,11 @@ const BecomeTutor: React.FC = () => {
                       <Input type="file" accept="image/*" onChange={(e) => setFiles({ ...files, profilePhoto: e.target.files?.[0] || null })} />
                     </div>
                     <div className="grid gap-4 sm:grid-cols-2">
-                      <Field label="Full name" error={errors.fullName}><Input required value={form.fullName} onChange={(e) => update("fullName", e.target.value)} /></Field>
-                      <Field label="Email" error={errors.email}><Input required type="email" value={form.email} onChange={(e) => update("email", e.target.value)} /></Field>
+                      <Field label="Full name" error={errors.fullName}><Input required autoComplete="off" value={form.fullName} onChange={(e) => update("fullName", e.target.value)} /></Field>
+                      <Field label="Email" error={errors.email}><Input required type="email" autoComplete="off" value={form.email} onChange={(e) => update("email", e.target.value)} /></Field>
                       <Field label="Phone" error={errors.phone}><Input required value={form.phone} onChange={(e) => update("phone", e.target.value)} /></Field>
                       {!form.googleIdToken && (
-                        <Field label="Password" error={errors.password}><Input required type="password" value={form.password} onChange={(e) => update("password", e.target.value)} /></Field>
+                        <Field label="Password" error={errors.password}><Input required type="password" autoComplete="new-password" value={form.password} onChange={(e) => update("password", e.target.value)} /></Field>
                       )}
                       {form.googleIdToken && (
                         <div className="rounded-lg border border-secondary/20 bg-secondary/10 p-4 text-sm text-secondary">

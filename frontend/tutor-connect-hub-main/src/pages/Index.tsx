@@ -8,7 +8,7 @@ import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 import TutorCard from '@/components/TutorCard';
 import { Button } from '@/components/ui/button';
-import heroImage from '@/assets/hero-ethiopian-tutor-left-space.png';
+import heroImage from '@/assets/hero-ethiopian-tutor-left-space-bright.png';
 
 const Index: React.FC = () => {
   const { t, lang } = useI18n();
@@ -71,7 +71,7 @@ const Index: React.FC = () => {
                   <ArrowRight className="ml-2 h-5 w-5" />
                 </Button>
               </Link>
-              <Link to="/signup?role=tutor">
+              <Link to="/become-tutor?fresh=1">
                 <Button size="lg" variant="outline" className={`h-14 border-foreground/45 bg-background/35 px-9 text-lg text-foreground backdrop-blur transition hover:-translate-y-0.5 hover:bg-background/55 ${f}`}>
                   {t.hero.ctaSecondary}
                 </Button>

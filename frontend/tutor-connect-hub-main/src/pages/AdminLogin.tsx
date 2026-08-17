@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { AlertCircle, Shield } from "lucide-react";
 import { useI18n } from "@/lib/i18n-context";
 import { api, clearAuthSession, setAuthSession } from "@/lib/api";
@@ -19,6 +19,7 @@ import Footer from "@/components/Footer";
 const AdminLogin: React.FC = () => {
   const { lang } = useI18n();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -37,7 +38,8 @@ const AdminLogin: React.FC = () => {
       }
 
       setAuthSession(result.token, result.user);
-      navigate("/admin");
+      const next = searchParams.get("next");
+      navigate(next?.startsWith("/admin") ? next : "/admin");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invalid email or password");
     } finally {

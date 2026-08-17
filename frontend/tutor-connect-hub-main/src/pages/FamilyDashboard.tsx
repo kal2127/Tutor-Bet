@@ -35,8 +35,6 @@ const emptyPost = {
   hours_per_day: 1,
   budget_mode: "NEGOTIABLE" as "FIXED" | "AS_TUTOR_WANTS" | "NEGOTIABLE",
   budget: "",
-  request_payment_transaction_ref: "",
-  request_payment_receipt: null as File | null,
 };
 
 const FamilyDashboard: React.FC = () => {
@@ -48,6 +46,7 @@ const FamilyDashboard: React.FC = () => {
   const [jobPosts, setJobPosts] = useState<JobPost[]>([]);
   const [applicationsByJob, setApplicationsByJob] = useState<Record<number, JobApplication[]>>({});
   const [form, setForm] = useState(emptyPost);
+  const [requestSubmitted, setRequestSubmitted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -100,11 +99,6 @@ const FamilyDashboard: React.FC = () => {
         .filter(Boolean)
         .join("\n\n");
 
-      if (!form.request_payment_receipt) {
-        toast({ title: "Receipt required", description: "Upload the payment receipt before posting your request.", variant: "destructive" });
-        return;
-      }
-
       const payload = new FormData();
       payload.append("title", `${form.subject || "Tutor"} request for ${form.grade}`);
       payload.append("description", description);
@@ -119,14 +113,14 @@ const FamilyDashboard: React.FC = () => {
       if (form.budget_mode === "FIXED" && form.budget) {
         payload.append("budget", form.budget);
       }
-      if (form.request_payment_transaction_ref) {
-        payload.append("request_payment_transaction_ref", form.request_payment_transaction_ref);
-      }
-      payload.append("request_payment_receipt", form.request_payment_receipt);
 
       await api.createJobPost(payload);
       setForm(emptyPost);
-      toast({ title: "Request submitted", description: "Admin will approve it after reviewing your payment receipt." });
+      setRequestSubmitted(true);
+      toast({
+        title: "Request submitted",
+        description: "We will email you after admin approval and when tutors apply.",
+      });
       await load();
     } catch (err) {
       toast({ title: "Error", description: err instanceof Error ? err.message : "Could not create request", variant: "destructive" });
@@ -141,6 +135,15 @@ const FamilyDashboard: React.FC = () => {
     await load();
   };
 
+  const closeRequest = async (jobId: number) => {
+    const confirmed = window.confirm("Close this request? Tutors will no longer see it as an open job.");
+    if (!confirmed) return;
+
+    await api.closeJobPost(jobId);
+    toast({ title: "Request closed", description: "Tutors will no longer see this as an open request." });
+    await load();
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
@@ -148,7 +151,7 @@ const FamilyDashboard: React.FC = () => {
         <div className="mb-8 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-3xl font-bold">Family Dashboard</h1>
-            <p className="text-muted-foreground">Manage bookings, tutor requests, applications, and payment approvals.</p>
+            <p className="text-muted-foreground">Manage bookings, tutor requests, applications, and admin approvals.</p>
           </div>
         </div>
 
@@ -158,7 +161,7 @@ const FamilyDashboard: React.FC = () => {
           <Metric icon={CalendarDays} label="Bookings" value={bookings.length} />
           <Metric icon={Briefcase} label="Requests" value={jobPosts.length} />
           <Metric icon={Users} label="Applications" value={Object.values(applicationsByJob).flat().length} />
-          <Metric icon={CreditCard} label="Pending approvals" value={bookings.filter((b) => b.status.includes("PAYMENT") || b.payment_status === "PENDING").length} />
+          <Metric icon={CreditCard} label="Pending approvals" value={bookings.filter((b) => b.status === "PENDING_VERIFICATION" || b.payment_status === "PENDING").length} />
         </div>
 
         {loading ? (
@@ -204,12 +207,10 @@ const FamilyDashboard: React.FC = () => {
                           label="Admin review"
                           value={
                             booking.status === "PENDING_VERIFICATION"
-                              ? "Receipt submitted. Waiting for admin approval."
+                              ? "Waiting for admin approval."
                               : formatStatus(booking.status)
                           }
                         />
-                        <Info label="Transaction ref" value={booking.transaction_ref || "Not provided"} />
-                        <Info label="Receipt" value={booking.receipt_url ? "Uploaded" : "Missing"} />
                         <Info label="Tutor Fayda ID" value={<DocumentLink href={booking.tutor_fayda_id_url} label={booking.tutor_fayda_id_url ? "View Fayda ID" : "Not available"} />} />
                         <Info label="Location / requirement" value={booking.location_note || "Not provided"} />
                       </div>
@@ -232,7 +233,14 @@ const FamilyDashboard: React.FC = () => {
                             Submitted {job.created_at ? new Date(job.created_at).toLocaleDateString() : "recently"}
                           </p>
                         </div>
-                        <Badge className={statusClass(job.status)}>{formatStatus(job.status)}</Badge>
+                        <div className="flex flex-wrap gap-2">
+                          <Badge className={statusClass(job.status)}>{formatStatus(job.status)}</Badge>
+                          {["OPEN", "PENDING_APPROVAL"].includes(job.status) && (
+                            <Button size="sm" variant="outline" onClick={() => closeRequest(job.id)}>
+                              Close request
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-5">
@@ -244,9 +252,6 @@ const FamilyDashboard: React.FC = () => {
                         <Info label="Schedule" value={`${job.days_per_week} days/week, ${job.hours_per_day} hours/day`} />
                         <Info label="Session" value={job.session_type.replace("_", " ").toLowerCase()} />
                         <Info label="Location" value={job.location_note || "Not specified"} />
-                        <Info label="Request payment status" value={money(job.request_payment_amount)} />
-                        <Info label="Transaction ref" value={job.request_payment_transaction_ref || "Not provided"} />
-                        <Info label="Receipt" value={job.request_payment_receipt_url ? "Uploaded" : "Missing"} />
                       </div>
                       <div>
                         <p className="mb-1 text-sm font-medium">Description</p>
@@ -274,12 +279,17 @@ const FamilyDashboard: React.FC = () => {
                                   <p className="text-sm text-muted-foreground">{[application.location_city, application.location_area].filter(Boolean).join(", ") || "Location not specified"}</p>
                                 </div>
                               </div>
-                              {job.status === "OPEN" && application.status === "APPLIED" && (
-                                <Button size="sm" onClick={() => selectApplication(job.id, application.id)} className="gap-1">
-                                  <CheckCircle className="h-4 w-4" />
-                                  Select
+                              <div className="flex flex-wrap gap-2">
+                                <Button size="sm" variant="outline" onClick={() => navigate(`/tutors/${application.tutor_id}`)}>
+                                  See more profile
                                 </Button>
-                              )}
+                                {job.status === "OPEN" && application.status === "APPLIED" && (
+                                  <Button size="sm" onClick={() => selectApplication(job.id, application.id)} className="gap-1">
+                                    <CheckCircle className="h-4 w-4" />
+                                    Select
+                                  </Button>
+                                )}
+                              </div>
                             </div>
                             <div className="mt-4 grid gap-3 md:grid-cols-3">
                               <Info label="Education" value={application.education || "-"} />
@@ -325,56 +335,86 @@ const FamilyDashboard: React.FC = () => {
               <Card>
                 <CardHeader><CardTitle>Post a Tutor Request</CardTitle></CardHeader>
                 <CardContent>
-                  <form onSubmit={createPost} className="grid gap-4 md:grid-cols-2">
-                    <Field label="Subject"><Input value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} /></Field>
-                    <Field label="Grade"><Input value={form.grade} onChange={(e) => setForm({ ...form, grade: e.target.value })} required /></Field>
-                    <Field label="Curriculum">
-                      <Select value={form.curriculum} onValueChange={(value) => setForm({ ...form, curriculum: value })}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Choose curriculum" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Ethiopian">Ethiopian</SelectItem>
-                          <SelectItem value="Cambridge">Cambridge</SelectItem>
-                          <SelectItem value="American">American</SelectItem>
-                          <SelectItem value="International">International</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                    <Field label="Budget per hour">
-                      <Select
-                        value={form.budget_mode}
-                        onValueChange={(value: "FIXED" | "AS_TUTOR_WANTS" | "NEGOTIABLE") =>
-                          setForm({ ...form, budget_mode: value, budget: value === "FIXED" ? form.budget : "" })
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="NEGOTIABLE">By negotiation</SelectItem>
-                          <SelectItem value="AS_TUTOR_WANTS">As requested by the tutor</SelectItem>
-                          <SelectItem value="FIXED">Enter amount</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                    {form.budget_mode === "FIXED" && (
-                      <Field label="Amount per hour">
-                        <Input type="number" min="0" value={form.budget} onChange={(e) => setForm({ ...form, budget: e.target.value })} />
+                  {requestSubmitted ? (
+                    <div className="rounded-lg border border-secondary/30 bg-secondary/10 p-6">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                        <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-secondary/20 text-secondary">
+                          <CheckCircle className="h-6 w-6" />
+                        </div>
+                        <div className="space-y-3">
+                          <div>
+                            <h3 className="text-xl font-semibold text-foreground">
+                              Your request was successfully submitted for approval.
+                            </h3>
+                            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+                              You will get an email when the admin approves your request. After approval, tutors can apply and you will also receive email updates when tutors apply.
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-3">
+                            <Button
+                              type="button"
+                              className="bg-gradient-primary text-primary-foreground"
+                              onClick={() => setActiveTab("jobs")}
+                            >
+                              View requests
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => setRequestSubmitted(false)}
+                            >
+                              Post another request
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <form onSubmit={createPost} className="grid gap-4 md:grid-cols-2">
+                      <Field label="Subject"><Input value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} /></Field>
+                      <Field label="Grade"><Input value={form.grade} onChange={(e) => setForm({ ...form, grade: e.target.value })} required /></Field>
+                      <Field label="Curriculum">
+                        <Select value={form.curriculum} onValueChange={(value) => setForm({ ...form, curriculum: value })}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Choose curriculum" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Ethiopian">Ethiopian</SelectItem>
+                            <SelectItem value="Cambridge">Cambridge</SelectItem>
+                            <SelectItem value="American">American</SelectItem>
+                            <SelectItem value="International">International</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </Field>
-                    )}
-                    <Field label="Payment transaction ref">
-                      <Input value={form.request_payment_transaction_ref} onChange={(e) => setForm({ ...form, request_payment_transaction_ref: e.target.value })} placeholder="Bank transfer or receipt reference" />
-                    </Field>
-                    <Field label="Payment receipt">
-                      <Input type="file" accept="image/*,.pdf" onChange={(e) => setForm({ ...form, request_payment_receipt: e.target.files?.[0] || null })} required />
-                    </Field>
-                    <Field label="Days per week"><Input type="number" min="1" value={form.days_per_week} onChange={(e) => setForm({ ...form, days_per_week: Number(e.target.value) })} required /></Field>
-                    <Field label="Hours per day"><Input type="number" min="1" value={form.hours_per_day} onChange={(e) => setForm({ ...form, hours_per_day: Number(e.target.value) })} required /></Field>
-                    <Field label="Location or online preference"><Input value={form.location_note} onChange={(e) => setForm({ ...form, location_note: e.target.value })} /></Field>
-                    <div className="md:col-span-2"><Field label="Description"><Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></Field></div>
-                    <div className="md:col-span-2"><Button disabled={saving} className="bg-gradient-primary text-primary-foreground">{saving ? "Creating..." : "Post request"}</Button></div>
-                  </form>
+                      <Field label="Budget per hour">
+                        <Select
+                          value={form.budget_mode}
+                          onValueChange={(value: "FIXED" | "AS_TUTOR_WANTS" | "NEGOTIABLE") =>
+                            setForm({ ...form, budget_mode: value, budget: value === "FIXED" ? form.budget : "" })
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="NEGOTIABLE">By negotiation</SelectItem>
+                            <SelectItem value="AS_TUTOR_WANTS">As requested by the tutor</SelectItem>
+                            <SelectItem value="FIXED">Enter amount</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+                      {form.budget_mode === "FIXED" && (
+                        <Field label="Amount per hour">
+                          <Input type="number" min="0" value={form.budget} onChange={(e) => setForm({ ...form, budget: e.target.value })} />
+                        </Field>
+                      )}
+                      <Field label="Days per week"><Input type="number" min="1" value={form.days_per_week} onChange={(e) => setForm({ ...form, days_per_week: Number(e.target.value) })} required /></Field>
+                      <Field label="Hours per day"><Input type="number" min="1" value={form.hours_per_day} onChange={(e) => setForm({ ...form, hours_per_day: Number(e.target.value) })} required /></Field>
+                      <Field label="Location or online preference"><Input value={form.location_note} onChange={(e) => setForm({ ...form, location_note: e.target.value })} /></Field>
+                      <div className="md:col-span-2"><Field label="Description"><Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></Field></div>
+                      <div className="md:col-span-2"><Button disabled={saving} className="bg-gradient-primary text-primary-foreground">{saving ? "Creating..." : "Post request"}</Button></div>
+                    </form>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>

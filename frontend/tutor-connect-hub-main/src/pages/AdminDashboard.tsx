@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   CalendarDays,
@@ -25,6 +25,7 @@ import {
   PendingTutor,
 } from "@/lib/api";
 import { formatGradePricing, summarizeGradePricing } from "@/lib/pricing";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -100,8 +101,10 @@ function DocumentLink({ href, label }: { href?: string | null; label: string }) 
 
 const AdminDashboard: React.FC = () => {
   const { lang } = useI18n();
+  const { toast } = useToast();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const emailActionHandled = useRef(false);
   const am = lang === "am";
   const cls = am ? "font-ethiopic" : "";
 
@@ -202,6 +205,54 @@ const AdminDashboard: React.FC = () => {
     await api.adminRejectRequest(id, reason);
     await loadDashboard();
   };
+
+  useEffect(() => {
+    const approveType = searchParams.get("approve");
+    const id = searchParams.get("id");
+
+    if (emailActionHandled.current || !approveType || !id) return;
+    emailActionHandled.current = true;
+
+    const tab =
+      searchParams.get("tab") ||
+      (approveType === "request"
+        ? "posting-approval"
+        : approveType === "tutor"
+          ? "tutor-approval"
+          : "booking-approval");
+
+    const cleanUrl = `/admin?tab=${encodeURIComponent(tab)}`;
+
+    const approveFromEmail = async () => {
+      try {
+        if (approveType === "request") {
+          await api.adminApproveRequest(id);
+        } else if (approveType === "tutor") {
+          await api.adminApproveTutor(id);
+        } else if (approveType === "booking") {
+          await api.adminApprovePayment(id);
+        } else {
+          throw new Error("Unknown approval action");
+        }
+
+        toast({
+          title: "Approved",
+          description: "The email approval action was completed.",
+        });
+      } catch (err) {
+        toast({
+          title: "Approval failed",
+          description: err instanceof Error ? err.message : "Could not complete the email approval action.",
+          variant: "destructive",
+        });
+      } finally {
+        navigate(cleanUrl, { replace: true });
+        await loadDashboard();
+      }
+    };
+
+    approveFromEmail();
+  }, [loadDashboard, navigate, searchParams, toast]);
 
   const setUserActive = async (id: number | string, isActive: boolean) => {
     await api.adminSetUserActive(id, isActive);
@@ -347,7 +398,7 @@ const AdminDashboard: React.FC = () => {
                           <TableHead>Tutor</TableHead>
                           <TableHead>Schedule</TableHead>
                           <TableHead>Amount</TableHead>
-                          <TableHead>Payment</TableHead>
+                          <TableHead>Approval</TableHead>
                           <TableHead>Status</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -365,8 +416,6 @@ const AdminDashboard: React.FC = () => {
                             <TableCell>
                               <div className="space-y-1 text-sm">
                                 <div>{statusBadge(booking.payment_status || "pending")}</div>
-                                <p className="text-muted-foreground">Ref: {booking.transaction_ref || "-"}</p>
-                                <DocumentLink href={booking.receipt_url} label="Receipt" />
                               </div>
                             </TableCell>
                             <TableCell>{statusBadge(booking.status)}</TableCell>
@@ -616,15 +665,8 @@ const AdminDashboard: React.FC = () => {
                               <p className="text-muted-foreground">Schedule: {request.days_per_week} days/week, {request.hours_per_day} hours/day</p>
                             </div>
                             <div>
-                              <p className="font-medium">Payment</p>
-                              <p className="text-muted-foreground">Amount: {request.request_payment_amount || "-"} ETB</p>
-                              <p className="text-muted-foreground">Reference: {request.request_payment_transaction_ref || "-"}</p>
-                              {request.request_payment_receipt_url && (
-                                <a href={assetUrl(request.request_payment_receipt_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
-                                  View receipt
-                                  <ExternalLink className="h-3.5 w-3.5" />
-                                </a>
-                              )}
+                              <p className="font-medium">Budget</p>
+                              <p className="text-muted-foreground">Amount: {request.budget || "-"} ETB</p>
                             </div>
                             <div>
                               <p className="font-medium">Description</p>
@@ -654,8 +696,6 @@ const AdminDashboard: React.FC = () => {
                           <TableHead>Family</TableHead>
                           <TableHead>Tutor</TableHead>
                           <TableHead>Amount</TableHead>
-                          <TableHead>Reference</TableHead>
-                          <TableHead>Receipt</TableHead>
                           <TableHead>Actions</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -666,10 +706,6 @@ const AdminDashboard: React.FC = () => {
                             <TableCell>{payment.family_name || payment.family_id}</TableCell>
                             <TableCell>{payment.tutor_name || payment.tutor_id}</TableCell>
                             <TableCell>{payment.amount} ETB</TableCell>
-                            <TableCell>{payment.transaction_ref || "-"}</TableCell>
-                            <TableCell>
-                              <DocumentLink href={payment.receipt_url} label="View receipt" />
-                            </TableCell>
                             <TableCell>
                               <div className="flex gap-2">
                                 <Button
@@ -696,7 +732,7 @@ const AdminDashboard: React.FC = () => {
                       </TableBody>
                     </Table>
                     {pendingPayments.length === 0 && (
-                      <p className="py-8 text-center text-muted-foreground">No booking payments waiting for approval.</p>
+                      <p className="py-8 text-center text-muted-foreground">No bookings waiting for approval.</p>
                     )}
                   </CardContent>
                 </Card>

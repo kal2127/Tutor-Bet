@@ -7,8 +7,8 @@ const ApplicationStatus = require("../../constants/applicationStatus");
 const { sendEmail } = require("../../services/email.service");
 const logger = require("../../utils/logger");
 const BookingStatus = require("../../constants/bookingStatus");
-const env = require("../../config/env");
 const { formatGradePricing } = require("../../utils/gradePricing");
+const { adminActionButton } = require("../../utils/adminEmailActions");
 
 async function sendEmailWithFallback(options) {
   try {
@@ -23,10 +23,6 @@ function requestReceiptUrl(file) {
 }
 
 async function createJobPost(familyId, data, receiptFile) {
-  if (!receiptFile) {
-    throw new HttpError(400, "Payment receipt is required before posting a request.");
-  }
-
   const result = await query(
     `INSERT INTO tutor_job_posts
       (
@@ -80,13 +76,17 @@ async function createJobPost(familyId, data, receiptFile) {
       to: adminEmail,
       subject: "New tutor request awaiting approval",
       html: `
-        <h2>New Tutor Request Payment Submitted</h2>
+        <h2>New Tutor Request Submitted</h2>
         <p><strong>Family:</strong> ${family.full_name || "Family"} &lt;${family.email || ""}&gt;</p>
         <p><strong>Request:</strong> ${data.title}</p>
         <p><strong>Grade:</strong> ${data.grade}</p>
         <p><strong>Curriculum:</strong> ${data.curriculum}</p>
-        <p><strong>Payment amount:</strong> ${data.request_payment_amount ?? data.budget ?? "Not specified"}</p>
-        <p>Review the receipt and approve the request in the admin dashboard.</p>
+        <p><strong>Budget:</strong> ${data.budget ?? "Not specified"}</p>
+        <p>Review and approve the request in the admin dashboard.</p>
+        ${adminActionButton("Approve request", "posting-approval", {
+          approve: "request",
+          id: result.insertId,
+        })}
       `,
     });
   }
@@ -171,7 +171,7 @@ async function rejectJobPost(adminId, jobPostId, reason) {
         <p>Hello ${rows[0].full_name},</p>
         <p>Your request <strong>${rows[0].title}</strong> was not approved.</p>
         ${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ""}
-        <p>Please review your payment receipt or request details and contact support if needed.</p>
+        <p>Please review your request details and contact support if needed.</p>
       `,
     });
   }
@@ -203,8 +203,12 @@ async function listOpenJobPostsForTutors(tutorId) {
        ON a.job_post_id = jp.id
       AND a.tutor_id = ?
      WHERE jp.status = ?
-     ORDER BY jp.id DESC`,
-    [tutorId, JobStatus.OPEN],
+        OR a.id IS NOT NULL
+     ORDER BY
+       CASE WHEN jp.status = ? AND a.id IS NULL THEN 0 ELSE 1 END,
+       jp.created_at DESC,
+       jp.id DESC`,
+    [tutorId, JobStatus.OPEN, JobStatus.OPEN],
   );
 }
 
@@ -326,7 +330,6 @@ async function applyToJobPost(tutorId, jobPostId, data) {
 
   const tutorProfile = tutorInfo[0] || {};
   const proposedRate = data.proposed_rate ?? tutorProfile.hourly_rate ?? null;
-  const dashboardUrl = `${env.app.frontendUrl}/family/dashboard?tab=jobs&job=${jobPostId}`;
   const tutorLocation = [tutorProfile.location_city, tutorProfile.location_area]
     .filter(Boolean)
     .join(", ");
@@ -369,8 +372,11 @@ async function applyToJobPost(tutorId, jobPostId, data) {
       ${data.message ? `<p><strong>Application message:</strong> ${data.message}</p>` : ""}
 
       <p>
-        Open your family dashboard to review the complete tutor profile, including certifications and documents:
-        <a href="${dashboardUrl}">${dashboardUrl}</a>
+        To see more of this tutor's profile, open your family dashboard and choose this request.
+      </p>
+
+      <p>
+        You can compare applications, certifications, and documents from your family dashboard.
       </p>
     `,
   });
@@ -465,6 +471,51 @@ async function listMyJobPosts(familyId) {
     `,
     [familyId],
   );
+}
+
+async function closeJobPost(familyId, jobId) {
+  const jobRows = await query(
+    `
+    SELECT id, status
+    FROM tutor_job_posts
+    WHERE id = ? AND family_id = ?
+    `,
+    [jobId, familyId],
+  );
+
+  if (!jobRows.length) {
+    throw new HttpError(404, "Job post not found.");
+  }
+
+  const job = jobRows[0];
+  if ([JobStatus.CLOSED, JobStatus.FULFILLED].includes(job.status)) {
+    return { jobPostId: jobId, status: job.status };
+  }
+
+  if (![JobStatus.OPEN, JobStatus.PENDING_APPROVAL].includes(job.status)) {
+    throw new HttpError(400, "This request cannot be closed.");
+  }
+
+  await query(
+    `
+    UPDATE tutor_job_posts
+    SET status = ?
+    WHERE id = ? AND family_id = ?
+    `,
+    [JobStatus.CLOSED, jobId, familyId],
+  );
+
+  await query(
+    `
+    UPDATE tutor_job_applications
+    SET status = ?
+    WHERE job_post_id = ?
+      AND status = ?
+    `,
+    [ApplicationStatus.REJECTED, jobId, ApplicationStatus.APPLIED],
+  );
+
+  return { jobPostId: jobId, status: JobStatus.CLOSED };
 }
 
 async function selectTutorApplication(familyId, jobId, applicationId) {
@@ -691,7 +742,7 @@ The family selected you for <strong>${job.title}</strong>.
 
 <p>
 
-Please wait for admin payment verification. We will send another email with family contact details after the booking payment is approved.
+Please wait for admin approval. We will send another email with family contact details after the booking is approved.
 
 </p>
 
@@ -720,7 +771,7 @@ You successfully selected a tutor.
 
 <p>
 
-Please upload your payment receipt.
+Your selected tutor booking is waiting for admin approval.
 
 </p>
 
@@ -742,6 +793,7 @@ module.exports = {
   applyToJobPost,
   listApplicationsForMyJob,
   selectTutorApplication,
+  closeJobPost,
   listMyJobPosts,
   listOpenJobPostsForTutors,
   listPendingJobPostsForAdmin,

@@ -74,6 +74,7 @@ export function toUiTutor(item: Record<string, unknown>): Tutor {
   const subjects = parseList(item.subjects);
   const grades = parseList(item.grade_levels);
   const languages = parseList(item.languages);
+  const certifications = parseList(item.certification_urls);
   const subjectList = subjects.length ? subjects : ["General"];
 
   return {
@@ -92,7 +93,7 @@ export function toUiTutor(item: Record<string, unknown>): Tutor {
     bioAm: String(item.bio ?? "Dedicated tutor"),
     mode: "both",
     isFeatured: Boolean(item.is_featured),
-    certifications: [],
+    certifications,
     gender: String(item.gender ?? ""),
     profession: String(item.employment_status ?? "Tutor"),
     organization: String(item.organization ?? ""),

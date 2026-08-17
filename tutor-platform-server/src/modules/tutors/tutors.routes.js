@@ -8,6 +8,7 @@ const {
 } = require("./tutors.controller");
 const { authRequired, requireRole } = require("../../middleware/authRequired");
 const { listBookings } = require("../bookings/bookings.controller");
+const { uploadTutorApplication } = require("../../middleware/uploadTutorApplication");
 
 // protected tutor routes first
 router.get("/profile", authRequired, requireRole("TUTOR"), getMyTutorProfile);
@@ -16,6 +17,10 @@ router.patch(
   "/profile",
   authRequired,
   requireRole("TUTOR"),
+  uploadTutorApplication.fields([
+    { name: "profile_photo", maxCount: 1 },
+    { name: "certifications", maxCount: 8 },
+  ]),
   updateMyTutorProfile,
 );
 

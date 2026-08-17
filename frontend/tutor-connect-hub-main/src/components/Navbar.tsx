@@ -56,7 +56,7 @@ const Navbar: React.FC = () => {
       ? [{ path: "/family/dashboard", label: "Dashboard" }]
       : []),
     ...(user?.role === "ADMIN" ? [{ path: "/admin", label: "Admin" }] : []),
-    { path: "/signup?role=tutor", label: t.nav.becomeTutor },
+    { path: "/become-tutor?fresh=1", label: t.nav.becomeTutor },
     { path: "/feedback", label: "Feedback" },
   ];
 

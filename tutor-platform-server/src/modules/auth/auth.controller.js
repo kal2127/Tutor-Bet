@@ -15,6 +15,8 @@ const {
   loginSchema,
   googleAuthSchema,
 } = require("./auth.validators");
+const { sendEmailSafely } = require("../../services/email.service");
+const { adminActionButton } = require("../../utils/adminEmailActions");
 
 const googleClient = new OAuth2Client();
 
@@ -100,24 +102,33 @@ async function createGooglePasswordHash() {
   return bcrypt.hash(`google:${crypto.randomBytes(32).toString("hex")}`, 10);
 }
 
-async function releaseRejectedTutorAccount(user) {
+async function releaseUnapprovedTutorAccount(user) {
   const tutorStatus = String(user?.tutor_status || "").toUpperCase();
   const inactive = user?.is_active === 0 || user?.is_active === false;
 
-  if (user?.role !== "TUTOR" || (tutorStatus !== "REJECTED" && !(inactive && !tutorStatus))) {
+  if (user?.role !== "TUTOR" || tutorStatus === "APPROVED" || (!tutorStatus && !inactive)) {
     return false;
   }
 
-  const releasedEmail = `rejected-${user.id}-${Date.now()}@tutorbet.local`;
-  await query(
-    `UPDATE users
-     SET email = ?,
-         google_sub = NULL,
-         is_active = 0
-     WHERE id = ?
-       AND role = 'TUTOR'`,
-    [releasedEmail, user.id],
-  );
+  try {
+    await query(
+      "DELETE FROM users WHERE id = ? AND role = 'TUTOR'",
+      [user.id],
+    );
+  } catch (error) {
+    if (error?.code !== "ER_ROW_IS_REFERENCED_2") throw error;
+
+    const releasedEmail = `rejected-${user.id}-${Date.now()}@tutorbet.local`;
+    await query(
+      `UPDATE users
+       SET email = ?,
+           google_sub = NULL,
+           is_active = 0
+       WHERE id = ?
+         AND role = 'TUTOR'`,
+      [releasedEmail, user.id],
+    );
+  }
 
   return true;
 }
@@ -139,7 +150,7 @@ async function ensureTutorEmailCanApply(email) {
   const existing = await findAccountByEmail(email);
   if (!existing) return;
 
-  const released = await releaseRejectedTutorAccount(existing);
+  const released = await releaseUnapprovedTutorAccount(existing);
   if (!released) throw new HttpError(409, "Email already registered");
 }
 
@@ -176,11 +187,7 @@ async function registerTutor(req, res, next) {
   try {
     const data = registerTutorSchema.parse(normalizeTutorBody(req.body));
 
-    const existing = await query("SELECT id FROM users WHERE email = ?", [
-      data.email,
-    ]);
-    if (existing.length > 0)
-      throw new HttpError(409, "Email already registered");
+    await ensureTutorEmailCanApply(data.email);
 
     let googleProfile = null;
     if (data.google_id_token) {
@@ -272,7 +279,7 @@ async function registerTutor(req, res, next) {
           highschool_transcript_url,
           tempo_url
         )
-       VALUES (?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, CAST(? AS JSON), ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         tutorId,
         data.gender || null,
@@ -292,6 +299,27 @@ async function registerTutor(req, res, next) {
         fileUrl(req, files.tempo?.[0]),
       ],
     );
+
+    const adminEmail = process.env.ADMIN_EMAIL || env.EMAIL_USER;
+    if (adminEmail) {
+      await sendEmailSafely({
+        to: adminEmail,
+        subject: "New tutor application awaiting approval",
+        html: `
+          <h2>New Tutor Application Submitted</h2>
+          <p><strong>Tutor:</strong> ${data.full_name} &lt;${data.email}&gt;</p>
+          <p><strong>Phone:</strong> ${data.phone || "-"}</p>
+          <p><strong>Location:</strong> ${[data.location_city, data.capable_location_area].filter(Boolean).join(", ") || "-"}</p>
+          <p><strong>Education:</strong> ${data.education || "-"}</p>
+          <p><strong>Experience:</strong> ${data.experience_years ?? 0} years</p>
+          <p>Review the tutor application and approve it in the admin dashboard.</p>
+          ${adminActionButton("Approve tutor", "tutor-approval", {
+            approve: "tutor",
+            id: tutorId,
+          })}
+        `,
+      });
+    }
 
     return res.created(
       {
@@ -358,7 +386,7 @@ async function googleAuth(req, res, next) {
     if (existing.length) {
       const user = existing[0];
 
-      if (data.role === "TUTOR" && await releaseRejectedTutorAccount(user)) {
+      if (data.role === "TUTOR" && await releaseUnapprovedTutorAccount(user)) {
         return res.ok(
           {
             profile: {

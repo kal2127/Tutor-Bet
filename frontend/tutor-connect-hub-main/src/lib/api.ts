@@ -519,6 +519,14 @@ export const api = {
       method: "PATCH",
     }),
 
+  closeJobPost: (jobPostId: number | string) =>
+    request<{ jobPostId: number; status: string }>(
+      `/jobPost/family/job-posts/${jobPostId}/close`,
+      {
+        method: "PATCH",
+      },
+    ),
+
   getTutorProfile: () => request<TutorProfile>("/tutor/profile"),
 
   updateTutorProfile: (body: {
@@ -528,8 +536,16 @@ export const api = {
     education?: string;
     experience_years?: number;
     hourly_rate?: number;
+    gender?: string;
+    employment_status?: string;
+    organization?: string;
+    grade_levels?: string[];
     hourly_rates_by_grade?: Record<string, unknown>;
-  }) =>
+    subjects?: string[];
+    languages?: string[];
+    curriculum_options?: string[];
+    cgpa?: number;
+  } | FormData) =>
     request<null>("/tutor/profile", {
       method: "PATCH",
       body,

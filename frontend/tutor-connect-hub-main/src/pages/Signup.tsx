@@ -92,7 +92,7 @@ const Signup: React.FC = () => {
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4" autoComplete={isTutorSignup ? "off" : "on"}>
             {error && (
               <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
                 {error}
@@ -104,6 +104,7 @@ const Signup: React.FC = () => {
               <Input
                 value={fullName}
                 onChange={(event) => setFullName(event.target.value)}
+                autoComplete={isTutorSignup ? "off" : "name"}
                 placeholder={lang === "am" ? "ሙሉ ስም" : "Full name"}
                 required
               />
@@ -115,6 +116,7 @@ const Signup: React.FC = () => {
                 type="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
+                autoComplete={isTutorSignup ? "off" : "email"}
                 placeholder="email@example.com"
                 required
               />
@@ -126,6 +128,7 @@ const Signup: React.FC = () => {
                 type="tel"
                 value={phone}
                 onChange={(event) => setPhone(event.target.value)}
+                autoComplete={isTutorSignup ? "off" : "tel"}
                 placeholder="+251..."
                 required
               />
@@ -137,6 +140,7 @@ const Signup: React.FC = () => {
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
+                autoComplete="new-password"
                 placeholder="••••••••"
                 required
               />

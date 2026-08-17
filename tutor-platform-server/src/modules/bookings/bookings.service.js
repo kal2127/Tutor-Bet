@@ -4,6 +4,7 @@ const BookingStatus = require("../../constants/bookingStatus");
 const TutorStatus = require("../../constants/tutorStatus");
 const env = require("../../config/env");
 const { sendEmailSafely } = require("../../services/email.service");
+const { adminActionButton } = require("../../utils/adminEmailActions");
 
 function buildBookingSelectQuery(whereClause = "", params = []) {
   return query(
@@ -45,6 +46,8 @@ async function createBooking(familyId, data) {
   const tutorRows = await query(
     `SELECT
        u.id,
+       u.full_name AS tutor_name,
+       u.email AS tutor_email,
        tp.status,
        tp.is_available
      FROM users u
@@ -91,12 +94,42 @@ async function createBooking(familyId, data) {
 
   const bookingId = bookingResult.insertId;
 
-  await query(
+  const paymentResult = await query(
     `INSERT INTO booking_payments
       (booking_id, amount, status)
      VALUES (?, ?, ?)`,
     [bookingId, data.amount, "PENDING"],
   );
+
+  const familyRows = await query(
+    "SELECT full_name, email FROM users WHERE id = ?",
+    [familyId],
+  );
+  const family = familyRows[0] || {};
+  const adminEmail = process.env.ADMIN_EMAIL || env.EMAIL_USER;
+
+  if (adminEmail) {
+    await sendEmailSafely({
+      to: adminEmail,
+      subject: "New booking awaiting approval",
+      html: `
+        <h2>New Booking Submitted</h2>
+        <p><strong>Family:</strong> ${family.full_name || "Family"} &lt;${family.email || ""}&gt;</p>
+        <p><strong>Tutor:</strong> ${tutor.tutor_name || "Tutor"} &lt;${tutor.tutor_email || ""}&gt;</p>
+        <p><strong>Student:</strong> ${data.student_name || "-"}</p>
+        <p><strong>Grade:</strong> ${data.grade || "-"}</p>
+        <p><strong>Curriculum:</strong> ${data.curriculum || "-"}</p>
+        <p><strong>Session:</strong> ${data.session_type || "-"}, ${data.days_per_week || "-"} days/week, ${data.hours_per_day || "-"} hours/day</p>
+        <p><strong>Location / requirement:</strong><br>${String(data.location_note || "-").replace(/\n/g, "<br>")}</p>
+        <p><strong>Amount:</strong> ${data.amount ?? "-"} ETB</p>
+        <p>Review and approve the booking in the admin dashboard.</p>
+        ${adminActionButton("Approve booking", "booking-approval", {
+          approve: "booking",
+          id: paymentResult.insertId,
+        })}
+      `,
+    });
+  }
 
   return {
     bookingId,
@@ -164,6 +197,7 @@ async function attachReceiptToBooking(bookingId, familyId, data, receiptFile) {
         <p><strong>Location / requirement:</strong><br>${String(booking.location_note || "-").replace(/\n/g, "<br>")}</p>
         <p><strong>Transaction reference:</strong> ${data.transaction_ref || "-"}</p>
         <p>Review the receipt and approve or reject the payment in the admin dashboard.</p>
+        ${adminActionButton("Review and approve booking", "booking-approval")}
       `,
     });
   }

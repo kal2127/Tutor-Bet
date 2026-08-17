@@ -1,5 +1,5 @@
 import React from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { getCurrentUser } from "@/lib/api";
 
 interface AdminRouteProps {
@@ -8,9 +8,11 @@ interface AdminRouteProps {
 
 const AdminRoute: React.FC<AdminRouteProps> = ({ children }) => {
   const user = getCurrentUser();
+  const location = useLocation();
 
   if (!user || user.role !== "ADMIN") {
-    return <Navigate to="/admin/login" replace />;
+    const next = `${location.pathname}${location.search}`;
+    return <Navigate to={`/admin/login?next=${encodeURIComponent(next)}`} replace />;
   }
 
   return <>{children}</>;

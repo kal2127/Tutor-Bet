@@ -154,8 +154,8 @@ async function approveTutor(id) {
     UPDATE tutor_profiles tp
     INNER JOIN users u ON u.id = tp.tutor_id
     SET tp.status = ?,
-        tp.is_available = 0,
-        u.is_active = 0
+        tp.is_available = 1,
+        u.is_active = 1
     WHERE tp.tutor_id = ?
       AND u.role = 'TUTOR'
     `,
@@ -173,7 +173,7 @@ async function approveTutor(id) {
       <p>Hello ${tutorRows[0].full_name},</p>
       <p>Your tutor profile has been approved by the admin.</p>
       <p>Your public profile can now appear on Tutor ቤት, and you can apply to open family requests from your tutor dashboard.</p>
-      <p>Login here: <a href="${process.env.FRONTEND_URL || "http://localhost:8080"}/tutor/dashboard">${process.env.FRONTEND_URL || "http://localhost:8080"}/tutor/dashboard</a></p>
+      <p>Please log in to your tutor dashboard to review open family requests and update your profile.</p>
     `,
   });
 
@@ -199,21 +199,18 @@ async function rejectTutor(id) {
     throw new HttpError(404, "Tutor profile not found");
   }
 
-  const result = await query(
+  await query(
     `
     UPDATE tutor_profiles tp
     INNER JOIN users u ON u.id = tp.tutor_id
     SET tp.status = ?,
-        u.is_active = 1
+        tp.is_available = 0,
+        u.is_active = 0
     WHERE tp.tutor_id = ?
       AND u.role = 'TUTOR'
     `,
     [TutorStatus.REJECTED, tutorId],
   );
-
-  if (result.affectedRows === 0) {
-    throw new HttpError(404, "Tutor profile not found");
-  }
 
   await sendEmailSafely({
     to: tutorRows[0].email,
@@ -225,7 +222,32 @@ async function rejectTutor(id) {
     `,
   });
 
-  return { tutorId, status: TutorStatus.REJECTED };
+  try {
+    const result = await query(
+      "DELETE FROM users WHERE id = ? AND role = 'TUTOR'",
+      [tutorId],
+    );
+
+    if (result.affectedRows === 0) {
+      throw new HttpError(404, "Tutor profile not found");
+    }
+  } catch (error) {
+    if (error instanceof HttpError) throw error;
+    if (error?.code !== "ER_ROW_IS_REFERENCED_2") throw error;
+
+    const releasedEmail = `rejected-${tutorId}-${Date.now()}@tutorbet.local`;
+    await query(
+      `UPDATE users
+       SET email = ?,
+           google_sub = NULL,
+           is_active = 0
+       WHERE id = ?
+         AND role = 'TUTOR'`,
+      [releasedEmail, tutorId],
+    );
+  }
+
+  return { tutorId, status: TutorStatus.REJECTED, unregistered: true };
 }
 async function getDashboardStatistics() {
   const totalUsers = await query("SELECT COUNT(*) AS total FROM users");
@@ -358,7 +380,7 @@ async function approvePayment(paymentId) {
     const bp = bpRows[0];
 
     if (bp.status !== "PENDING") {
-      throw new Error("Payment is not pending");
+      throw new Error("Booking approval is not pending");
     }
 
     // mark payment as paid
@@ -406,7 +428,7 @@ async function approvePayment(paymentId) {
           subject: "You have been chosen for a Tutor ቤት booking",
           html: `
             <p>Hello ${info.tutor_name},</p>
-            <p>The family booking payment has been verified. You have been chosen for this tutoring session.</p>
+            <p>The family booking has been approved. You have been chosen for this tutoring session.</p>
             <h3>Family Contact</h3>
             <p><strong>Name:</strong> ${info.family_name || "-"}</p>
             <p><strong>Email:</strong> ${info.family_email || "-"}</p>
@@ -425,7 +447,7 @@ async function approvePayment(paymentId) {
           subject: "Your Tutor ቤት booking has been approved",
           html: `
             <p>Hello ${info.family_name},</p>
-            <p>Your booking payment has been approved. You can now contact the tutor directly.</p>
+            <p>Your booking has been approved. You can now contact the tutor directly.</p>
             <h3>Tutor Contact</h3>
             <p><strong>Name:</strong> ${info.tutor_name || "-"}</p>
             <p><strong>Email:</strong> ${info.tutor_email || "-"}</p>
@@ -505,8 +527,8 @@ async function rejectPayment(paymentId, remarks) {
         const info = rows[0];
         await sendEmailSafely({
           to: info.family_email,
-          subject: "Payment Rejected",
-          html: `<p>Hello ${info.family_name},</p><p>Your payment was rejected. Remarks: ${remarks || ""}</p>`,
+          subject: "Booking Rejected",
+          html: `<p>Hello ${info.family_name},</p><p>Your booking was rejected. Remarks: ${remarks || ""}</p>`,
         });
       }
     } catch (err) {

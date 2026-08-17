@@ -1,6 +1,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { BookOpen, GraduationCap, Languages, MapPin, UserRound } from "lucide-react";
+import { Award, BookOpen, GraduationCap, Languages, MapPin, UserRound } from "lucide-react";
 import { useI18n } from "@/lib/i18n-context";
 import { Tutor } from "@/lib/tutors";
 import { summarizeGradePricing } from "@/lib/pricing";
@@ -83,6 +83,7 @@ const TutorCard: React.FC<TutorCardProps> = ({ tutor }) => {
           <InfoRow icon={BookOpen} label="Subjects" items={visibleSubjects} empty="General" />
           <InfoRow icon={GraduationCap} label="Grades" items={visibleGrades} empty="All levels" />
           <InfoRow icon={Languages} label="Languages" items={visibleLanguages} empty="Not specified" />
+          <InfoRow icon={Award} label="Certificates" items={tutor.certifications.length ? [`${tutor.certifications.length} uploaded`] : []} empty="None uploaded" />
         </div>
 
         <div className="mt-4 flex flex-wrap gap-1.5">
@@ -109,7 +110,7 @@ const TutorCard: React.FC<TutorCardProps> = ({ tutor }) => {
           <Link to={`/tutors/${tutor.id}`}>
             <Button
               size="sm"
-              className={`bg-gradient-primary text-primary-foreground shadow-gold hover:opacity-90 ${f}`}
+              className={`whitespace-nowrap bg-gradient-primary text-primary-foreground shadow-gold hover:opacity-90 ${f}`}
             >
               {t.featured.bookNow}
             </Button>

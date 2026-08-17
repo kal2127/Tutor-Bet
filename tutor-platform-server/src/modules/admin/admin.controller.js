@@ -94,7 +94,7 @@ async function getPendingPayments(req, res, next) {
   try {
     const payments = await adminService.getPendingPayments();
 
-    return res.ok(payments, "Pending payments fetched successfully");
+    return res.ok(payments, "Pending booking approvals fetched successfully");
   } catch (err) {
     next(err);
   }
@@ -103,7 +103,7 @@ async function approvePayment(req, res, next) {
   try {
     await adminService.approvePayment(req.params.id);
 
-    return res.ok(null, "Payment approved");
+    return res.ok(null, "Booking approved");
   } catch (err) {
     next(err);
   }
@@ -112,7 +112,7 @@ async function rejectPayment(req, res, next) {
   try {
     await adminService.rejectPayment(req.params.id, req.body.remarks);
 
-    return res.ok(null, "Payment rejected");
+    return res.ok(null, "Booking rejected");
   } catch (err) {
     next(err);
   }

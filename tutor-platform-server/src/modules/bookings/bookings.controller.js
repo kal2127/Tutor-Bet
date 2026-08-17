@@ -16,7 +16,7 @@ async function createFamilyBooking(req, res, next) {
         bookingId: result.bookingId,
         status: result.status,
       },
-      "Booking created. Upload receipt file and/or transaction reference.",
+      "Booking created and submitted for admin review.",
     );
   } catch (e) {
     next(e);

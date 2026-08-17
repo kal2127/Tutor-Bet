@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Briefcase, CalendarDays, CheckCircle, CreditCard, Power, Save } from "lucide-react";
+import { Briefcase, CalendarDays, CheckCircle, CreditCard, Edit3, Power, Save, Upload, X } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { Badge } from "@/components/ui/badge";
@@ -14,8 +14,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, BookingRecord, clearAuthSession, getCurrentUser, JobPost, TutorProfile } from "@/lib/api";
 import { formatStatus, money, statusClass } from "@/lib/dashboard";
-import { formatGradePricing, parseGradePricing, summarizeGradePricing } from "@/lib/pricing";
+import { formatGradePricing, gradeBands, parseGradePricing, summarizeGradePricing } from "@/lib/pricing";
 import { useToast } from "@/hooks/use-toast";
+
+const API_ORIGIN = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/api\/?$/, "").replace(/\/$/, "");
+
+function assetUrl(href?: string | null) {
+  if (!href) return "";
+  if (/^https?:\/\//i.test(href)) return href;
+  return `${API_ORIGIN}${href.startsWith("/") ? href : `/${href}`}`;
+}
 
 const TutorDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -24,6 +32,11 @@ const TutorDashboard: React.FC = () => {
   const [bookings, setBookings] = useState<BookingRecord[]>([]);
   const [jobs, setJobs] = useState<JobPost[]>([]);
   const [applicationDrafts, setApplicationDrafts] = useState<Record<number, { message: string; proposed_rate: string }>>({});
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [profileFiles, setProfileFiles] = useState({
+    profilePhoto: null as File | null,
+    certifications: [] as File[],
+  });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -51,7 +64,14 @@ const TutorDashboard: React.FC = () => {
 
       setProfile(profileResult);
       setBookings(bookingResult.bookings || []);
-      setJobs(jobResult.job_posts || []);
+      setJobs(
+        (jobResult.job_posts || []).slice().sort((a, b) => {
+          const aOpen = a.status === "OPEN" && !a.my_application_status ? 0 : 1;
+          const bOpen = b.status === "OPEN" && !b.my_application_status ? 0 : 1;
+          if (aOpen !== bOpen) return aOpen - bOpen;
+          return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+        }),
+      );
     } catch (err) {
       const status = err instanceof Error && "status" in err ? (err as Error & { status?: number }).status : undefined;
       if (status === 401 || status === 403) {
@@ -83,17 +103,35 @@ const TutorDashboard: React.FC = () => {
     event.preventDefault();
     if (!profile) return;
     setSaving(true);
-    const pricing = parseGradePricing(profile.hourly_rates_by_grade);
+    const grades = formatLinks(profile.grade_levels);
+    const pricing = normalizePricingForGrades(profile.hourly_rates_by_grade, grades, profile.hourly_rate);
+    const data = new FormData();
+    data.append("bio", profile.bio || "");
+    data.append("location_city", profile.location_city || "");
+    data.append("location_area", profile.location_area || "");
+    data.append("education", profile.education || "");
+    data.append("experience_years", String(Number(profile.experience_years || 0)));
+    data.append("hourly_rate", String(summaryHourlyRateNumber(pricing, profile.hourly_rate)));
+    data.append("gender", profile.gender || "");
+    data.append("employment_status", profile.employment_status || "");
+    data.append("organization", profile.organization || "");
+    if (profile.cgpa !== null && profile.cgpa !== undefined && profile.cgpa !== "") {
+      data.append("cgpa", String(profile.cgpa));
+    }
+    data.append("grade_levels", JSON.stringify(grades));
+    data.append("hourly_rates_by_grade", JSON.stringify(pricing));
+    data.append("subjects", JSON.stringify(formatLinks(profile.subjects)));
+    data.append("languages", JSON.stringify(formatLinks(profile.languages)));
+    data.append("curriculum_options", JSON.stringify(formatLinks(profile.curriculum_options)));
+    if (profileFiles.profilePhoto) {
+      data.append("profile_photo", profileFiles.profilePhoto);
+    }
+    profileFiles.certifications.forEach((file) => data.append("certifications", file));
+
     try {
-      await api.updateTutorProfile({
-        bio: profile.bio || "",
-        location_city: profile.location_city || "",
-        location_area: profile.location_area || "",
-        education: profile.education || "",
-        experience_years: Number(profile.experience_years || 0),
-        hourly_rate: summaryHourlyRateNumber(pricing, profile.hourly_rate),
-        hourly_rates_by_grade: pricing,
-      });
+      await api.updateTutorProfile(data);
+      setEditingProfile(false);
+      setProfileFiles({ profilePhoto: null, certifications: [] });
       toast({ title: "Profile updated" });
       await load();
     } catch (err) {
@@ -125,7 +163,10 @@ const TutorDashboard: React.FC = () => {
         message: draft.message || undefined,
         proposed_rate: draft.proposed_rate ? Number(draft.proposed_rate) : undefined,
       });
-      toast({ title: "Application submitted" });
+      toast({
+        title: "You successfully applied for this request",
+        description: "The family will reach you if they choose you.",
+      });
       setJobs((prev) =>
         prev.map((job) =>
           job.id === jobId
@@ -185,11 +226,11 @@ const TutorDashboard: React.FC = () => {
         {loading || !profile ? (
           <div className="py-20 text-center text-muted-foreground">Loading dashboard...</div>
         ) : (
-          <Tabs defaultValue="profile">
+          <Tabs defaultValue={profile.status === "APPROVED" ? "jobs" : "profile"}>
             <TabsList className="mb-4">
+              <TabsTrigger value="jobs">New Requests</TabsTrigger>
               <TabsTrigger value="profile">Profile</TabsTrigger>
               <TabsTrigger value="bookings">Bookings</TabsTrigger>
-              <TabsTrigger value="jobs">Open Requests</TabsTrigger>
             </TabsList>
 
             <TabsContent value="profile">
@@ -198,9 +239,21 @@ const TutorDashboard: React.FC = () => {
                   <div className="flex items-center justify-between gap-4">
                     <CardTitle>{profile.status === "APPROVED" ? "Public Tutor Profile" : "Tutor Application Status"}</CardTitle>
                     {profile.status === "APPROVED" && (
-                      <div className="flex items-center gap-2 text-sm">
-                        <span className="text-muted-foreground">Available</span>
-                        <Switch checked={Boolean(profile.is_available)} onCheckedChange={updateAvailability} />
+                      <div className="flex flex-wrap items-center gap-3 text-sm">
+                        <Button
+                          type="button"
+                          variant={editingProfile ? "outline" : "default"}
+                          size="sm"
+                          onClick={() => setEditingProfile((current) => !current)}
+                          className="gap-2"
+                        >
+                          {editingProfile ? <X className="h-4 w-4" /> : <Edit3 className="h-4 w-4" />}
+                          {editingProfile ? "Cancel edit" : "Edit profile"}
+                        </Button>
+                        <div className="flex items-center gap-2">
+                          <span className="text-muted-foreground">Available</span>
+                          <Switch checked={Boolean(profile.is_available)} onCheckedChange={updateAvailability} />
+                        </div>
                       </div>
                     )}
                   </div>
@@ -235,7 +288,7 @@ const TutorDashboard: React.FC = () => {
                         <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
                           <div className="flex items-center gap-4">
                             {profile.profile_photo_url ? (
-                              <img src={profile.profile_photo_url} alt={profile.full_name} className="h-24 w-24 rounded-xl object-cover ring-2 ring-primary/20" />
+                              <img src={assetUrl(profile.profile_photo_url)} alt={profile.full_name} className="h-24 w-24 rounded-xl object-cover ring-2 ring-primary/20" />
                             ) : (
                               <div className="flex h-24 w-24 items-center justify-center rounded-xl bg-primary/10 text-3xl font-bold text-primary">
                                 {profile.full_name.charAt(0)}
@@ -292,9 +345,33 @@ const TutorDashboard: React.FC = () => {
                         </Card>
                       </div>
 
-                      <div className="rounded-lg border border-border bg-background p-5">
-                        <h3 className="mb-4 text-lg font-semibold">Edit Public Profile</h3>
+                      {editingProfile && (
+                        <div className="rounded-lg border border-primary/30 bg-primary/5 p-5">
+                          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                              <h3 className="text-lg font-semibold">Edit Public Profile</h3>
+                              <p className="text-sm text-muted-foreground">
+                                Update your profile like a professional portfolio: add grade levels, subjects, certifications, awards, and profile details whenever they change.
+                              </p>
+                            </div>
+                          </div>
                           <form onSubmit={updateProfile} className="grid gap-4 md:grid-cols-2">
+                            <div className="md:col-span-2">
+                              <Field label="Profile photo">
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                                  {profileFiles.profilePhoto ? (
+                                    <img src={URL.createObjectURL(profileFiles.profilePhoto)} alt="New profile preview" className="h-20 w-20 rounded-xl object-cover ring-2 ring-primary/30" />
+                                  ) : profile.profile_photo_url ? (
+                                    <img src={assetUrl(profile.profile_photo_url)} alt={profile.full_name} className="h-20 w-20 rounded-xl object-cover ring-2 ring-primary/20" />
+                                  ) : (
+                                    <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-primary/10 text-2xl font-bold text-primary">
+                                      {profile.full_name.charAt(0)}
+                                    </div>
+                                  )}
+                                  <Input type="file" accept="image/*" onChange={(e) => setProfileFiles((prev) => ({ ...prev, profilePhoto: e.target.files?.[0] || null }))} />
+                                </div>
+                              </Field>
+                            </div>
                             <Field label="City">
                               <Input value={profile.location_city || ""} onChange={(e) => setProfile({ ...profile, location_city: e.target.value })} />
                             </Field>
@@ -307,8 +384,51 @@ const TutorDashboard: React.FC = () => {
                             <Field label="Experience years">
                               <Input type="number" min="0" value={profile.experience_years ?? 0} onChange={(e) => setProfile({ ...profile, experience_years: Number(e.target.value) })} />
                             </Field>
+                            <Field label="Gender">
+                              <Input value={profile.gender || ""} onChange={(e) => setProfile({ ...profile, gender: e.target.value })} />
+                            </Field>
+                            <Field label="Current status">
+                              <Input value={profile.employment_status || ""} onChange={(e) => setProfile({ ...profile, employment_status: e.target.value })} placeholder="Student, employed, self-employed..." />
+                            </Field>
+                            <Field label="Organization">
+                              <Input value={profile.organization || ""} onChange={(e) => setProfile({ ...profile, organization: e.target.value })} />
+                            </Field>
+                            <Field label="CGPA">
+                              <Input type="number" min="0" step="0.01" value={profile.cgpa ?? ""} onChange={(e) => setProfile({ ...profile, cgpa: e.target.value })} />
+                            </Field>
+                            <div className="md:col-span-2">
+                              <GradeLevelEditor profile={profile} setProfile={setProfile} />
+                            </div>
                             <div className="md:col-span-2">
                               <EditGradePricing profile={profile} setProfile={setProfile} />
+                            </div>
+                            <ListEditor label="Subjects" value={profile.subjects} onChange={(items) => setProfile({ ...profile, subjects: items })} placeholder="Math, Physics, English" />
+                            <ListEditor label="Languages" value={profile.languages} onChange={(items) => setProfile({ ...profile, languages: items })} placeholder="Amharic, English, Afaan Oromo" />
+                            <div className="md:col-span-2">
+                              <ListEditor label="Curriculum options" value={profile.curriculum_options} onChange={(items) => setProfile({ ...profile, curriculum_options: items })} placeholder="Ethiopian, Cambridge, American, International" />
+                            </div>
+                            <div className="md:col-span-2">
+                              <Field label="Add certifications or awards">
+                                <Input
+                                  type="file"
+                                  accept="image/*,.pdf"
+                                  multiple
+                                  onChange={(e) => setProfileFiles((prev) => ({
+                                    ...prev,
+                                    certifications: Array.from(e.target.files || []),
+                                  }))}
+                                />
+                                {profileFiles.certifications.length > 0 && (
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    {profileFiles.certifications.map((file) => (
+                                      <span key={`${file.name}-${file.size}`} className="rounded-md bg-primary/10 px-2 py-1 text-xs font-medium text-primary">
+                                        <Upload className="mr-1 inline h-3 w-3" />
+                                        {file.name}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </Field>
                             </div>
                             <div className="md:col-span-2">
                               <Field label="Bio">
@@ -322,7 +442,8 @@ const TutorDashboard: React.FC = () => {
                               </Button>
                             </div>
                           </form>
-                      </div>
+                        </div>
+                      )}
 
                       <Card>
                         <CardHeader><CardTitle>Teaching Scope</CardTitle></CardHeader>
@@ -340,7 +461,7 @@ const TutorDashboard: React.FC = () => {
                         <CardContent>
                           <div className="flex flex-wrap gap-2">
                             {formatLinks(profile.certification_urls).map((url, index) => (
-                              <a key={url} href={url} target="_blank" rel="noreferrer" className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-primary hover:bg-primary/10">
+                              <a key={url} href={assetUrl(url)} target="_blank" rel="noreferrer" className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-primary hover:bg-primary/10">
                                 Certificate {index + 1}
                               </a>
                             ))}
@@ -381,9 +502,23 @@ const TutorDashboard: React.FC = () => {
 
             <TabsContent value="jobs">
               <div className="space-y-4">
+                <Card className="border-primary/30 bg-primary/5">
+                  <CardContent className="flex flex-col gap-2 p-5 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h2 className="text-xl font-semibold">New tutoring jobs</h2>
+                      <p className="text-sm text-muted-foreground">
+                        New open requests are shown first so you can apply quickly.
+                      </p>
+                    </div>
+                    <Badge className="w-fit border-0 bg-primary text-primary-foreground">
+                      {jobs.filter((job) => job.status === "OPEN" && !job.my_application_status).length} new
+                    </Badge>
+                  </CardContent>
+                </Card>
                 {jobs.map((job) => {
                   const draft = applicationDrafts[job.id] || { message: "", proposed_rate: "" };
                   const alreadyApplied = Boolean(job.my_application_status);
+                  const canApply = profile.status === "APPROVED" && job.status === "OPEN" && !alreadyApplied;
                   return (
                     <Card key={job.id}>
                       <CardHeader>
@@ -392,7 +527,17 @@ const TutorDashboard: React.FC = () => {
                             <CardTitle>{job.title}</CardTitle>
                             <p className="text-sm text-muted-foreground">{job.subject || "General"} · {job.grade} · {money(job.budget)}</p>
                           </div>
-                          <Badge className={statusClass(job.status)}>{formatStatus(job.status)}</Badge>
+                          <div className="flex flex-wrap justify-end gap-2">
+                            {job.status === "OPEN" && !alreadyApplied && (
+                              <Badge className="border-0 bg-primary text-primary-foreground">New</Badge>
+                            )}
+                            {alreadyApplied && (
+                              <Badge className={statusClass(job.my_application_status || "APPLIED")}>
+                                {formatStatus(job.my_application_status || "APPLIED")}
+                              </Badge>
+                            )}
+                            <Badge className={statusClass(job.status)}>{formatStatus(job.status)}</Badge>
+                          </div>
                         </div>
                       </CardHeader>
                       <CardContent className="grid gap-4 lg:grid-cols-[1fr_360px]">
@@ -401,8 +546,8 @@ const TutorDashboard: React.FC = () => {
                           <p className="mt-3 text-sm">{job.days_per_week} days/week · {job.hours_per_day} hours/day · {job.session_type.replace("_", " ").toLowerCase()}</p>
                         </div>
                         <div className="space-y-2">
-                          <Input disabled={alreadyApplied} placeholder="Proposed rate" type="number" value={draft.proposed_rate} onChange={(e) => setApplicationDrafts((prev) => ({ ...prev, [job.id]: { ...draft, proposed_rate: e.target.value } }))} />
-                          <Textarea disabled={alreadyApplied} placeholder="Short message to family" value={draft.message} onChange={(e) => setApplicationDrafts((prev) => ({ ...prev, [job.id]: { ...draft, message: e.target.value } }))} />
+                          <Input disabled={!canApply} placeholder="Proposed rate" type="number" value={draft.proposed_rate} onChange={(e) => setApplicationDrafts((prev) => ({ ...prev, [job.id]: { ...draft, proposed_rate: e.target.value } }))} />
+                          <Textarea disabled={!canApply} placeholder="Short message to family" value={draft.message} onChange={(e) => setApplicationDrafts((prev) => ({ ...prev, [job.id]: { ...draft, message: e.target.value } }))} />
                           {profile.status !== "APPROVED" && (
                             <p className="rounded-lg bg-primary/10 p-3 text-sm text-primary">
                               You are not eligible to apply until admin approves your tutor profile.
@@ -410,12 +555,17 @@ const TutorDashboard: React.FC = () => {
                           )}
                           {alreadyApplied && (
                             <p className="rounded-lg bg-secondary/10 p-3 text-sm text-secondary">
-                              You already applied to this request. The family can review your profile from their dashboard.
+                              You successfully applied for this request. The family will reach you if they choose you.
                             </p>
                           )}
-                          <Button disabled={profile.status !== "APPROVED" || alreadyApplied} onClick={() => apply(job.id)} className="w-full gap-2">
+                          {job.status !== "OPEN" && (
+                            <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">
+                              This request is {formatStatus(job.status).toLowerCase()}, so it is no longer accepting new applications.
+                            </p>
+                          )}
+                          <Button disabled={!canApply} onClick={() => apply(job.id)} className="w-full gap-2">
                             <CheckCircle className="h-4 w-4" />
-                            {alreadyApplied ? "Applied" : "Apply"}
+                            {alreadyApplied ? "Applied" : job.status === "OPEN" ? "Apply" : "Closed"}
                           </Button>
                         </div>
                       </CardContent>
@@ -508,6 +658,86 @@ function PricingList({ value, fallback }: { value: unknown; fallback?: number | 
   );
 }
 
+function GradeLevelEditor({
+  profile,
+  setProfile,
+}: {
+  profile: TutorProfile;
+  setProfile: React.Dispatch<React.SetStateAction<TutorProfile | null>>;
+}) {
+  const selected = formatLinks(profile.grade_levels);
+  const selectedSet = new Set(selected);
+
+  const toggleGrade = (grade: string, checked: boolean) => {
+    const nextGrades = checked
+      ? [...selected, grade]
+      : selected.filter((item) => item !== grade);
+    const pricing = parseGradePricing(profile.hourly_rates_by_grade);
+
+    if (checked && !pricing[grade]) {
+      pricing[grade] = { mode: "NEGOTIATION" };
+    }
+    if (!checked) {
+      delete pricing[grade];
+    }
+
+    setProfile({
+      ...profile,
+      grade_levels: nextGrades,
+      hourly_rates_by_grade: pricing,
+      hourly_rate: summaryHourlyRateNumber(pricing, profile.hourly_rate),
+    });
+  };
+
+  return (
+    <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-4">
+      <p className="text-sm font-medium">Grade levels</p>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {gradeBands.map((grade) => (
+          <label key={grade} className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm">
+            <input
+              type="checkbox"
+              checked={selectedSet.has(grade)}
+              onChange={(e) => toggleGrade(grade, e.target.checked)}
+            />
+            {grade}
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ListEditor({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: unknown;
+  onChange: (items: string[]) => void;
+  placeholder?: string;
+}) {
+  return (
+    <Field label={label}>
+      <Input
+        value={formatLinks(value).join(", ")}
+        onChange={(e) =>
+          onChange(
+            e.target.value
+              .split(",")
+              .map((item) => item.trim())
+              .filter(Boolean),
+          )
+        }
+        placeholder={placeholder}
+      />
+      <p className="text-xs text-muted-foreground">Separate multiple items with commas.</p>
+    </Field>
+  );
+}
+
 function EditGradePricing({
   profile,
   setProfile,
@@ -579,6 +809,26 @@ function EditGradePricing({
         );
       })}
     </div>
+  );
+}
+
+function normalizePricingForGrades(value: unknown, grades: string[], fallback?: number | string | null) {
+  const pricing = parseGradePricing(value);
+  return grades.reduce<Record<string, { mode: "FIXED" | "NEGOTIATION"; amount?: number }>>(
+    (acc, grade) => {
+      const entry = pricing[grade];
+      if (entry?.mode === "FIXED") {
+        const amount = Number(entry.amount);
+        acc[grade] = {
+          mode: "FIXED",
+          amount: Number.isFinite(amount) && amount > 0 ? amount : 0,
+        };
+      } else {
+        acc[grade] = { mode: "NEGOTIATION" };
+      }
+      return acc;
+    },
+    {},
   );
 }
 
