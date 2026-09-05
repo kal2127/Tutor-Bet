@@ -10,18 +10,22 @@ const jobPostRoutes = require("./modules/job-posts/jobPosts.routes");
 const adminRoutes = require("./modules/admin/admin.routes");
 const paymentRoutes = require("./payment/payment.routes");
 const feedbackRoutes = require("./modules/feedback/feedback.routes");
+const securityHeaders = require("./middleware/securityHeaders");
+const responseFormatter = require("./middleware/responseFormatter");
+
 const app = express();
 
 app.use(cors());
-app.use(express.json());
-// security headers
-const securityHeaders = require("./middleware/securityHeaders");
-app.use(securityHeaders);
 
-// response helpers to standardize API shapes
-const responseFormatter = require("./middleware/responseFormatter");
+// Parses incoming JSON payloads (Cloudinary image URLs arrive as JSON strings)
+app.use(express.json({ limit: "5mb" }));
+app.use(express.urlencoded({ extended: true, limit: "5mb" }));
+
+// Security headers & response formatters
+app.use(securityHeaders);
 app.use(responseFormatter);
-// health check
+
+// Health check
 app.get("/health", async (req, res, next) => {
   try {
     const rows = await query("SELECT 1 AS ok");
@@ -30,7 +34,11 @@ app.get("/health", async (req, res, next) => {
     next(e);
   }
 });
+
+// Serve legacy uploads folder if needed for old local files
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+// Module Routes
 app.use("/family", bookingsRoutes);
 app.use("/admin", adminRoutes);
 app.use("/admin", bookingsRoutes);
@@ -40,7 +48,6 @@ app.use("/tutor", bookingsRoutes);
 app.use("/jobPost", jobPostRoutes);
 app.use("/", paymentRoutes);
 app.use("/feedback", feedbackRoutes);
-app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
 app.use("/auth", authenticate_routes);
 app.use(errorHandler);

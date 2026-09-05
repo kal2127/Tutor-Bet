@@ -8,19 +8,16 @@ const {
 } = require("./tutors.controller");
 const { authRequired, requireRole } = require("../../middleware/authRequired");
 const { listBookings } = require("../bookings/bookings.controller");
-const { uploadTutorApplication } = require("../../middleware/uploadTutorApplication");
+// REMOVED: uploadTutorApplication import (Multer is no longer needed here)
 
-// protected tutor routes first
+// Protected tutor routes first
 router.get("/profile", authRequired, requireRole("TUTOR"), getMyTutorProfile);
 
+// UPDATED: Removed uploadTutorApplication.fields middleware
 router.patch(
   "/profile",
   authRequired,
   requireRole("TUTOR"),
-  uploadTutorApplication.fields([
-    { name: "profile_photo", maxCount: 1 },
-    { name: "certifications", maxCount: 8 },
-  ]),
   updateMyTutorProfile,
 );
 
@@ -34,7 +31,7 @@ router.patch(
 // Tutor: list own bookings
 router.get("/bookings", authRequired, requireRole("TUTOR"), listBookings);
 
-// public routes after
+// Public routes after
 router.get("/", listPublicTutors);
 router.get("/:id", getPublicTutorById);
 

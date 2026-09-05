@@ -60,7 +60,29 @@ const initialForm = {
   cgpa: "",
   googleIdToken: "",
 };
+async function uploadToCloudinary(file: File) {
+  const CLOUD_NAME = "ghahbozo";       
+  const UPLOAD_PRESET = "TutorBet_Uploads"; 
 
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("upload_preset", UPLOAD_PRESET);
+
+  const response = await fetch(
+    `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/auto/upload`,
+    {
+      method: "POST",
+      body: formData,
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to upload ${file.name} to Cloudinary`);
+  }
+
+  const data = await response.json();
+  return data.secure_url as string; // Returns the public HTTPS link
+}
 const BecomeTutor: React.FC = () => {
   const { toast } = useToast();
   const location = useLocation();
@@ -197,7 +219,7 @@ const BecomeTutor: React.FC = () => {
     setStep(targetStep);
   };
 
-  const submit = async (event: React.FormEvent) => {
+const submit = async (event: React.FormEvent) => {
     event.preventDefault();
 
     const nextErrors = validateForm(form, files);
@@ -210,54 +232,94 @@ const BecomeTutor: React.FC = () => {
 
     setLoading(true);
 
-    const data = new FormData();
-    data.append("full_name", form.fullName);
-    data.append("email", form.email);
-    data.append("phone", form.phone);
-    if (form.password) data.append("password", form.password);
-    if (form.googleIdToken) data.append("google_id_token", form.googleIdToken);
-    data.append("gender", form.gender);
-    data.append("education", form.education);
-    data.append("employment_status", form.employmentStatus);
-    data.append("organization", form.organization);
-    data.append("experience_years", String(Number(form.experience) || 0));
-    data.append("location_city", form.city || "Addis Ababa");
-    data.append("capable_location_area", form.city || "Addis Ababa");
-    const gradePricing = buildGradePricingPayload(form);
-    const fixedRates = Object.values(gradePricing)
-      .filter((entry) => entry.mode === "FIXED")
-      .map((entry) => Number(entry.amount))
-      .filter((amount) => Number.isFinite(amount) && amount > 0);
-    data.append("hourly_rate", String(fixedRates.length ? Math.min(...fixedRates) : 0));
-    data.append("bio", form.bio);
-    data.append("grade_levels", JSON.stringify(form.grades));
-    data.append("hourly_rates_by_grade", JSON.stringify(gradePricing));
-    data.append("subjects", JSON.stringify(form.subjects));
-    data.append("languages", JSON.stringify(form.languages));
-    data.append("curriculum_options", JSON.stringify(form.curriculum));
-    data.append("has_tempo", String(form.hasTempo));
-    if (form.cgpa) data.append("cgpa", form.cgpa);
-    if (files.profilePhoto) data.append("profile_photo", files.profilePhoto);
-    files.certifications.forEach((file) => data.append("certifications", file));
-    if (files.faydaId) data.append("fayda_id", files.faydaId);
-    if (files.transcript) data.append("highschool_transcript", files.transcript);
-    if (files.tempo) data.append("tempo", files.tempo);
-
     try {
-      const result = await api.registerTutor(data);
+      // 1. Upload files to Cloudinary 
+      const profilePhotoUrl = files.profilePhoto
+        ? await uploadToCloudinary(files.profilePhoto)
+        : null;
+
+      const faydaIdUrl = files.faydaId
+        ? await uploadToCloudinary(files.faydaId)
+        : null;
+
+      const transcriptUrl = files.transcript
+        ? await uploadToCloudinary(files.transcript)
+        : null;
+
+      const tempoUrl = files.tempo
+        ? await uploadToCloudinary(files.tempo)
+        : null;
+
+      // Upload all certification files in parallel
+      const certificationUrls = await Promise.all(
+        files.certifications.map((file) => uploadToCloudinary(file))
+      );
+
+      // 2. Build pricing calculations
+      const gradePricing = buildGradePricingPayload(form);
+      const fixedRates = Object.values(gradePricing)
+        .filter((entry) => entry.mode === "FIXED")
+        .map((entry) => Number(entry.amount))
+        .filter((amount) => Number.isFinite(amount) && amount > 0);
+
+      // 3. Construct lightweight JSON payload with Cloudinary URLs
+      const payload = {
+        full_name: form.fullName,
+        email: form.email,
+        phone: form.phone,
+        password: form.password || undefined,
+        google_id_token: form.googleIdToken || undefined,
+        gender: form.gender,
+        education: form.education,
+        employment_status: form.employmentStatus,
+        organization: form.organization,
+        experience_years: Number(form.experience) || 0,
+        location_city: form.city || "Addis Ababa",
+        capable_location_area: form.city || "Addis Ababa",
+        hourly_rate: String(fixedRates.length ? Math.min(...fixedRates) : 0),
+        bio: form.bio,
+        grade_levels: form.grades,
+        hourly_rates_by_grade: gradePricing,
+        subjects: form.subjects,
+        languages: form.languages,
+        curriculum_options: form.curriculum,
+        has_tempo: form.hasTempo,
+        cgpa: form.cgpa,
+        // File URLs from Cloudinary
+        profile_photo_url: profilePhotoUrl,
+        fayda_id_url: faydaIdUrl,
+        highschool_transcript_url: transcriptUrl,
+        tempo_url: tempoUrl,
+        certifications_urls: certificationUrls,
+      };
+
+      // 4. Send JSON data to your backend
+      const result = await api.registerTutor(payload);
+
       if (result.token && result.user) {
         setAuthSession(result.token, result.user);
       }
+
       clearTutorApplicationDraft();
-      toast({ title: "Application submitted", description: "Admin will review your details and documents." });
+      toast({
+        title: "Application submitted",
+        description: "Admin will review your details and documents.",
+      });
       setSubmitted(true);
     } catch (err) {
       const serverErrors = parseServerErrors(err);
+
       if (Object.keys(serverErrors).length > 0) {
         setErrors(serverErrors);
         setStep(stepForError(Object.keys(serverErrors)[0]));
       } else {
-        toast({ title: "Error", description: err instanceof Error ? err.message : "Could not submit application", variant: "destructive" });
+        toast({
+          title: "Error",
+          description:
+            err instanceof Error
+              ? err.message
+              : "Something went wrong while uploading or submitting.",
+        });
       }
     } finally {
       setLoading(false);

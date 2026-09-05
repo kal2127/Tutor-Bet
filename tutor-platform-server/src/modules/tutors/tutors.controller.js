@@ -37,6 +37,7 @@ function normalizeTutorProfileBody(body = {}) {
     "subjects",
     "languages",
     "curriculum_options",
+    "certifications_urls",
   ].forEach((key) => {
     if (normalized[key] !== undefined) {
       normalized[key] = parseMaybeJson(normalized[key]);
@@ -48,10 +49,6 @@ function normalizeTutorProfileBody(body = {}) {
   });
 
   return normalized;
-}
-
-function fileUrl(file) {
-  return file ? `/uploads/tutor-applications/${file.filename}` : null;
 }
 
 async function getMyTutorProfile(req, res, next) {
@@ -151,11 +148,6 @@ async function updateMyTutorProfile(req, res, next) {
       "SELECT certification_urls FROM tutor_application_details WHERE tutor_id = ?",
       [tutorId],
     );
-    const files = req.files || {};
-    const profilePhotoUrl = fileUrl(files.profile_photo?.[0]);
-    const newCertificationUrls = (files.certifications || [])
-      .map((file) => fileUrl(file))
-      .filter(Boolean);
 
     const detailUpdates = [];
     const detailParams = [];
@@ -191,15 +183,15 @@ async function updateMyTutorProfile(req, res, next) {
     setDetail("employment_status", data.employment_status);
     setDetail("organization", data.organization);
     setDetail("cgpa", data.cgpa);
-    setDetail("profile_photo_url", profilePhotoUrl || undefined);
+    setDetail("profile_photo_url", data.profile_photo_url);
 
-    if (newCertificationUrls.length) {
+    if (data.certifications_urls && data.certifications_urls.length > 0) {
       const existingCertificationUrls = parseJsonArray(
         detailRows[0]?.certification_urls,
       );
       setDetail(
         "certification_urls",
-        JSON.stringify([...existingCertificationUrls, ...newCertificationUrls]),
+        JSON.stringify([...existingCertificationUrls, ...data.certifications_urls]),
       );
     }
 

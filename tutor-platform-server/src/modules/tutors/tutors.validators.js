@@ -26,6 +26,9 @@ const updateTutorProfileSchema = z.object({
   languages: stringListSchema,
   curriculum_options: stringListSchema,
   cgpa: z.coerce.number().min(0).max(100).optional(),
+  // New Cloudinary URL fields:
+  profile_photo_url: z.string().url().nullable().optional(),
+  certifications_urls: z.array(z.string().url()).optional(),
 });
 
 const updateAvailabilitySchema = z.object({
