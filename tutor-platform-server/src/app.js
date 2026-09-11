@@ -15,7 +15,12 @@ const responseFormatter = require("./middleware/responseFormatter");
 
 const app = express();
 
-app.use(cors());
+app.use(
+  cors({
+    origin: process.env.FRONTEND_URL || "*", // Allow your frontend domain
+    credentials: true,
+  })
+);
 
 // Parses incoming JSON payloads (Cloudinary image URLs arrive as JSON strings)
 app.use(express.json({ limit: "5mb" }));
