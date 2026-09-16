@@ -23,6 +23,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "nodemon": "^3.1.14"
+    "nodemon": "^3.1.14",
+    "nodemailer": "^9.0.3"
   }
 }
